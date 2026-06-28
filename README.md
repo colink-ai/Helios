@@ -90,6 +90,119 @@ ACP adapters expose the lower-level session metadata through
 whether native resume was used. Applications can store that metadata in their
 own schema and pass it back through `runtime.SessionRequest.ResumeSessionID`.
 
+## Quick Start
+
+```go
+registry := runtime.NewRegistry()
+_ = all.Register(registry)
+
+engine := runtime.NewEngine(registry, runtime.WithEventSink(runtime.EventSinkFunc(
+    func(ctx context.Context, event contracts.RunEvent) error {
+        // Persist events in the host application's own database.
+        return nil
+    },
+)))
+
+result, err := engine.Run(ctx, runtime.RunRequest{
+    Agent: runtime.AgentSpec{
+        Type:         "hermes",
+        CLIPath:      "hermes",
+        DefaultModel: "gpt-4.1",
+    },
+    Input: "Summarize this workspace.",
+})
+```
+
+## Compatibility Probes
+
+Use `runtime.CompatibilityHarness` to validate an installed CLI before enabling
+it for users:
+
+```go
+harness := runtime.NewCompatibilityHarness(engine)
+report := harness.Run(ctx, agent, []runtime.CompatibilityCheck{
+    {Scenario: runtime.CompatDetect},
+    {Scenario: runtime.CompatOneShot, Input: "Say hello"},
+    {Scenario: runtime.CompatResident, Input: "Keep this session alive"},
+})
+```
+
+The harness is intentionally SDK-level. It reports whether a runtime can be
+detected, started, prompted, resumed, or asked for capabilities without requiring
+Helios to know an application's database or tenant model.
+
+## Permission Flow
+
+When an agent asks for permission, Helios emits a semantic event:
+
+```go
+if event.Type == contracts.EventPermissionAsked {
+    permission := event.Chunk.Permission
+    decision := runtime.PermissionDecision{Allow: true, Reason: "approved by policy"}
+    _ = engine.SendPermissionResult(ctx, event.SessionID, permission.ID, decision)
+}
+```
+
+Applications remain responsible for user policy, audit, and approval UI. Helios
+only normalizes the runtime request and transports the decision back to the
+adapter.
+
+## Artifact Flow
+
+Agents can emit `artifact.created` events. Applications may store artifacts in
+their own systems, or use the SDK file helper:
+
+```go
+store := runtime.NewFileArtifactStore("/var/lib/my-app/runtime-artifacts")
+saved, err := store.SaveArtifact(ctx, *event.Artifact)
+data, err := store.ReadArtifact(ctx, saved)
+```
+
+The file helper keeps artifact paths under a configured root and does not create
+or update application database rows.
+
+## Session Resume
+
+Host applications persist `runtime.SessionSnapshot` in their own schema. To
+resume:
+
+```go
+snapshot, _ := appStore.LoadRuntimeSession(ctx, sessionID)
+handle, err := engine.ResumeSessionFromSnapshot(ctx, *snapshot, agent)
+```
+
+The snapshot's `AgentSessionID` is passed to the adapter as
+`ResumeSessionID`. ACP adapters try native `session/resume`, then `session/load`,
+then fall back to `session/new` when necessary.
+
+## Multi-Agent Teams
+
+`runtime.TeamRunner` provides a lightweight WorkGraph runner for simple
+agent-to-agent flows:
+
+```go
+runner := runtime.NewTeamRunner(engine)
+teamResult, err := runner.Run(ctx, runtime.TeamRunRequest{
+    Team:   team,
+    Agents: agentSpecsByID,
+    Input:  "Investigate this issue",
+})
+```
+
+This is not a workflow platform. It is a small runtime primitive for sequential
+agent teams, A2A message capture, and future handoff execution.
+
+## Diagnostics
+
+Applications can query session diagnostics for health pages or support tooling:
+
+```go
+diag, err := engine.Diagnostics(ctx, sessionID)
+```
+
+ACP diagnostics include the underlying agent session id, status, captured
+stderr, resume strategy, and transport background errors when available.
+
 ## Built-in Adapter Status
 
 | Adapter | Runtime mode | Notes |
