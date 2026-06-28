@@ -12,13 +12,15 @@ import (
 
 // Engine wires adapters, event emission, and optional session persistence.
 type Engine struct {
-	registry  *Registry
-	sink      EventSink
-	store     SessionStore
-	seq       int64
-	mu        sync.RWMutex
-	sessions  map[string]Adapter
-	sessionOf map[string]SessionRequest
+	registry    *Registry
+	sink        EventSink
+	store       SessionStore
+	seq         int64
+	mu          sync.RWMutex
+	sessions    map[string]Adapter
+	sessionOf   map[string]SessionRequest
+	strictSink  bool
+	strictStore bool
 }
 
 // EngineOption configures an Engine.
@@ -34,6 +36,14 @@ func WithEventSink(sink EventSink) EngineOption {
 
 func WithSessionStore(store SessionStore) EngineOption {
 	return func(e *Engine) { e.store = store }
+}
+
+func WithStrictEventSink() EngineOption {
+	return func(e *Engine) { e.strictSink = true }
+}
+
+func WithStrictSessionStore() EngineOption {
+	return func(e *Engine) { e.strictStore = true }
 }
 
 // NewEngine creates a runtime engine.
@@ -101,9 +111,11 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 	req.SessionID = handle.ID
 	e.sessionOf[handle.ID] = req
 	e.mu.Unlock()
-	_ = e.emit(ctx, eventWith(req, contracts.EventSessionStarted, ""))
+	if err := e.emit(ctx, eventWith(req, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
+		return nil, err
+	}
 	if e.store != nil {
-		_ = e.store.SaveSession(ctx, SessionSnapshot{
+		err := e.store.SaveSession(ctx, SessionSnapshot{
 			SessionID:      handle.ID,
 			RunID:          handle.RunID,
 			AgentID:        handle.AgentID,
@@ -113,6 +125,9 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 			Metadata:       handle.Metadata,
 			UpdatedAt:      time.Now().UTC(),
 		})
+		if err != nil && e.strictStore {
+			return nil, err
+		}
 	}
 	return handle, nil
 }
@@ -162,7 +177,9 @@ func (e *Engine) StopSession(ctx context.Context, sessionID string) error {
 	delete(e.sessionOf, sessionID)
 	e.mu.Unlock()
 	if e.store != nil {
-		_ = e.store.DeleteSession(ctx, sessionID)
+		if err := e.store.DeleteSession(ctx, sessionID); err != nil && e.strictStore {
+			return err
+		}
 	}
 	return e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
 }
@@ -216,7 +233,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	started := contracts.NewEvent(contracts.EventRunStarted)
 	started.RunID = runID
 	started.AgentID = req.Agent.ID
-	_ = e.emit(ctx, started)
+	if err := e.emit(ctx, started); err != nil && e.strictSink {
+		return nil, err
+	}
 
 	if native, ok := adapter.(RunAdapter); ok {
 		result, err := native.Run(ctx, req, func(chunk contracts.Chunk) {
@@ -226,7 +245,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			_ = e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunFailed, RunID: runID, AgentID: req.Agent.ID, Error: err.Error(), Timestamp: time.Now().UTC()})
 			return nil, err
 		}
-		_ = e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()})
+		if err := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()}); err != nil && e.strictSink {
+			return nil, err
+		}
 		return result, nil
 	}
 
@@ -256,7 +277,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if stopErr != nil {
 		return nil, stopErr
 	}
-	_ = e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, SessionID: handle.ID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()})
+	if err := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, SessionID: handle.ID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()}); err != nil && e.strictSink {
+		return nil, err
+	}
 	return result, nil
 }
 

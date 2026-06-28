@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/colink-ai/helios/contracts"
@@ -55,6 +56,50 @@ func TestEngineStartSessionEmitsAndStores(t *testing.T) {
 	}
 	if len(events) != 2 || events[1].Chunk.Content != "hi" || events[1].Sequence != 2 {
 		t.Fatalf("unexpected chunk event: %+v", events)
+	}
+}
+
+type failingStore struct {
+	SessionStore
+}
+
+func (failingStore) SaveSession(context.Context, SessionSnapshot) error {
+	return fmt.Errorf("store failed")
+}
+
+func TestEngineStrictEventSink(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg, WithStrictEventSink(), WithEventSink(EventSinkFunc(func(context.Context, contracts.RunEvent) error {
+		return fmt.Errorf("sink failed")
+	})))
+	if _, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-sink", Agent: AgentSpec{Type: "test"}}); err == nil {
+		t.Fatalf("strict sink should fail")
+	}
+}
+
+func TestEngineStrictSessionStore(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg, WithStrictSessionStore(), WithSessionStore(failingStore{}))
+	if _, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-store", Agent: AgentSpec{Type: "test"}}); err == nil {
+		t.Fatalf("strict store should fail")
 	}
 }
 
