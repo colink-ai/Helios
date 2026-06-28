@@ -37,3 +37,15 @@ func TestSupportsResume(t *testing.T) {
 		t.Fatalf("resume=false should not be supported")
 	}
 }
+
+func TestSupportsLoad(t *testing.T) {
+	if !supportsLoad(map[string]any{"sessionLoad": true}) {
+		t.Fatalf("sessionLoad should be supported")
+	}
+	if !supportsLoad(map[string]any{"sessions": map[string]any{"load": true}}) {
+		t.Fatalf("nested sessions.load should be supported")
+	}
+	if supportsLoad(map[string]any{"sessions": map[string]any{"load": false}}) {
+		t.Fatalf("load=false should not be supported")
+	}
+}

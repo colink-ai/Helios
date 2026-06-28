@@ -96,6 +96,57 @@ func TestBaseAdapterResumeSessionE2E(t *testing.T) {
 	_ = adapter.StopSession(ctx, handle.ID)
 }
 
+func TestBaseAdapterResumeFallsBackToLoadE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID:       "host-session-load",
+		ResumeSessionID: "resume-fails",
+		Agent:           helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start load fallback session: %v", err)
+	}
+	if handle.AgentSessionID != "loaded-session" {
+		t.Fatalf("agent session id = %q", handle.AgentSessionID)
+	}
+	if handle.Metadata["resumeStrategy"] != "load" || handle.Metadata["nativeResume"] != true {
+		t.Fatalf("unexpected metadata: %+v", handle.Metadata)
+	}
+	result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "hello"}, nil)
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if result.Output != "hello from fake" {
+		t.Fatalf("output = %q", result.Output)
+	}
+	_ = adapter.StopSession(ctx, handle.ID)
+}
+
+func TestBaseAdapterResumeFallsBackToNewE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID:       "host-session-new-fallback",
+		ResumeSessionID: "all-resume-fails",
+		Agent:           helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start new fallback session: %v", err)
+	}
+	if handle.AgentSessionID != "fake-session-new" {
+		t.Fatalf("agent session id = %q", handle.AgentSessionID)
+	}
+	if handle.Metadata["resumeStrategy"] != "new" || handle.Metadata["nativeResume"] != false {
+		t.Fatalf("unexpected metadata: %+v", handle.Metadata)
+	}
+	_ = adapter.StopSession(ctx, handle.ID)
+}
+
 func TestBaseAdapterRunE2E(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -234,6 +285,7 @@ func runFakeACPAgent() {
 				"protocolVersion": 2025,
 				"agentCapabilities": map[string]any{
 					"sessionResume": true,
+					"sessionLoad":   true,
 				},
 			})
 		case "session/new":
@@ -243,7 +295,20 @@ func runFakeACPAgent() {
 		case "session/resume":
 			var params SessionParams
 			_ = json.Unmarshal(req.Params, &params)
+			if params.SessionID == "resume-fails" || params.SessionID == "all-resume-fails" {
+				writeFakeError(writer, req.ID, -32000, "resume failed")
+				continue
+			}
 			writeFakeResult(writer, req.ID, map[string]any{"sessionId": params.SessionID})
+		case "session/load":
+			var params SessionParams
+			_ = json.Unmarshal(req.Params, &params)
+			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "history should be filtered"}})
+			if params.SessionID == "all-resume-fails" {
+				writeFakeError(writer, req.ID, -32000, "load failed")
+				continue
+			}
+			writeFakeResult(writer, req.ID, map[string]any{"sessionId": "loaded-session"})
 		case "session/prompt":
 			var params PromptParams
 			_ = json.Unmarshal(req.Params, &params)

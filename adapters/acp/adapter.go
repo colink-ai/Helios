@@ -50,6 +50,8 @@ type session struct {
 	pendingRequest   any
 	pendingQuestions []contracts.QuestionItem
 	nativeResume     bool
+	resumeStrategy   string
+	suppressReplay   bool
 	mu               sync.Mutex
 }
 
@@ -136,21 +138,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	_ = json.Unmarshal(initResult, &initResp)
 
 	mcpServers := ConvertMCPServers(req.MCPServers)
-	var sessionResult json.RawMessage
-	if req.ResumeSessionID != "" && supportsResume(initResp.AgentCapabilities) {
-		sessionResult, err = t.sendRequest(startCtx, "session/resume", SessionParams{
-			CWD:        req.WorkDir,
-			SessionID:  req.ResumeSessionID,
-			MCPServers: mcpServers,
-		})
-		s.agentSessionID = req.ResumeSessionID
-		s.nativeResume = true
-	} else {
-		sessionResult, err = t.sendRequest(startCtx, "session/new", SessionParams{
-			CWD:        req.WorkDir,
-			MCPServers: mcpServers,
-		})
-	}
+	sessionResult, err := a.startAgentSession(startCtx, req, s, initResp.AgentCapabilities, mcpServers)
 	if err != nil {
 		return nil, fail("session start", err)
 	}
@@ -175,7 +163,10 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 		AgentID:        req.Agent.ID,
 		AgentSessionID: s.agentSessionID,
 		Status:         helios.SessionRunning,
-		Metadata:       map[string]any{"nativeResume": s.nativeResume},
+		Metadata: map[string]any{
+			"nativeResume":   s.nativeResume,
+			"resumeStrategy": s.resumeStrategy,
+		},
 	}, nil
 }
 
@@ -357,6 +348,12 @@ func (a *BaseAdapter) handleNotification(s *session, method string, params json.
 	if method != "session/update" {
 		return
 	}
+	s.mu.Lock()
+	if s.suppressReplay {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
 	chunks, err := ParseSessionUpdate(params)
 	if err != nil {
 		return
@@ -411,6 +408,51 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, params js
 		return
 	}
 	_ = s.transport.sendResponse(id, nil, &Error{Code: -32601, Message: "method not found"})
+}
+
+func (a *BaseAdapter) startAgentSession(ctx context.Context, req helios.SessionRequest, s *session, capabilities map[string]any, mcpServers []any) (json.RawMessage, error) {
+	params := SessionParams{
+		CWD:        req.WorkDir,
+		MCPServers: mcpServers,
+	}
+	if req.ResumeSessionID != "" && supportsResume(capabilities) {
+		resumeParams := params
+		resumeParams.SessionID = req.ResumeSessionID
+		result, err := a.sendReplaySafeRequest(ctx, s, "session/resume", resumeParams)
+		if err == nil {
+			s.agentSessionID = parseSessionID(result, req.ResumeSessionID)
+			s.nativeResume = true
+			s.resumeStrategy = "resume"
+			return result, nil
+		}
+	}
+	if req.ResumeSessionID != "" && supportsLoad(capabilities) {
+		loadParams := params
+		loadParams.SessionID = req.ResumeSessionID
+		result, err := a.sendReplaySafeRequest(ctx, s, "session/load", loadParams)
+		if err == nil {
+			s.agentSessionID = parseSessionID(result, req.ResumeSessionID)
+			s.nativeResume = true
+			s.resumeStrategy = "load"
+			return result, nil
+		}
+	}
+	result, err := s.transport.sendRequest(ctx, "session/new", params)
+	if err == nil {
+		s.resumeStrategy = "new"
+	}
+	return result, err
+}
+
+func (a *BaseAdapter) sendReplaySafeRequest(ctx context.Context, s *session, method string, params SessionParams) (json.RawMessage, error) {
+	s.mu.Lock()
+	s.suppressReplay = true
+	s.mu.Unlock()
+	result, err := s.transport.sendRequest(ctx, method, params)
+	s.mu.Lock()
+	s.suppressReplay = false
+	s.mu.Unlock()
+	return result, err
 }
 
 func (a *BaseAdapter) configureModel(ctx context.Context, req helios.SessionRequest, s *session) error {
@@ -523,6 +565,21 @@ func supportsResume(capabilities map[string]any) bool {
 	}
 	if sessions, ok := capabilities["sessions"].(map[string]any); ok {
 		if value, ok := sessions["resume"].(bool); ok {
+			return value
+		}
+	}
+	return false
+}
+
+func supportsLoad(capabilities map[string]any) bool {
+	if capabilities == nil {
+		return false
+	}
+	if value, ok := capabilities["sessionLoad"].(bool); ok {
+		return value
+	}
+	if sessions, ok := capabilities["sessions"].(map[string]any); ok {
+		if value, ok := sessions["load"].(bool); ok {
 			return value
 		}
 	}
