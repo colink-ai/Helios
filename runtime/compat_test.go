@@ -91,3 +91,65 @@ func TestCompatibilityHarnessFailsMissingChunk(t *testing.T) {
 		t.Fatalf("unexpected report: %+v", report)
 	}
 }
+
+func TestCompatibilityHarnessDoesNotReuseEngineStoreByDefault(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	store := NewMemorySessionStore()
+	harness := NewCompatibilityHarness(NewEngine(reg, WithSessionStore(store)))
+	report := harness.Run(context.Background(), AgentSpec{Type: "test"}, []CompatibilityCheck{{Scenario: CompatResident, Input: "hello"}})
+	if len(report.Results) != 1 || !report.Results[0].Passed {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	snapshot, err := store.LoadSession(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	if snapshot != nil {
+		t.Fatalf("harness should not write to engine store by default: %+v", snapshot)
+	}
+}
+
+func TestCompatibilityHarnessExplicitStore(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	store := &countingStore{SessionStore: NewMemorySessionStore()}
+	harness := NewCompatibilityHarness(NewEngine(reg)).WithSessionStore(store)
+	report := harness.Run(context.Background(), AgentSpec{Type: "test"}, []CompatibilityCheck{{Scenario: CompatResident, Input: "hello"}})
+	if len(report.Results) != 1 || !report.Results[0].Passed {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if store.saved != 1 || store.deleted != 1 {
+		t.Fatalf("explicit harness store should be used, saved=%d deleted=%d", store.saved, store.deleted)
+	}
+}
+
+type countingStore struct {
+	SessionStore
+	saved   int
+	deleted int
+}
+
+func (s *countingStore) SaveSession(ctx context.Context, snapshot SessionSnapshot) error {
+	s.saved++
+	return s.SessionStore.SaveSession(ctx, snapshot)
+}
+
+func (s *countingStore) DeleteSession(ctx context.Context, sessionID string) error {
+	s.deleted++
+	return s.SessionStore.DeleteSession(ctx, sessionID)
+}

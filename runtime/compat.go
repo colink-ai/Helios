@@ -52,10 +52,16 @@ type CompatibilityReport struct {
 // CompatibilityHarness runs SDK-level compatibility probes against an Engine.
 type CompatibilityHarness struct {
 	engine *Engine
+	store  SessionStore
 }
 
 func NewCompatibilityHarness(engine *Engine) *CompatibilityHarness {
 	return &CompatibilityHarness{engine: engine}
+}
+
+func (h *CompatibilityHarness) WithSessionStore(store SessionStore) *CompatibilityHarness {
+	h.store = store
+	return h
 }
 
 func (h *CompatibilityHarness) Run(ctx context.Context, spec AgentSpec, checks []CompatibilityCheck) CompatibilityReport {
@@ -141,7 +147,11 @@ func (h *CompatibilityHarness) captureEngine() (*Engine, *[]contracts.Chunk) {
 		}
 		return nil
 	})
-	return NewEngine(h.engine.registry, WithEventSink(sink), WithSessionStore(h.engine.store)), &chunks
+	opts := []EngineOption{WithEventSink(sink)}
+	if h.store != nil {
+		opts = append(opts, WithSessionStore(h.store))
+	}
+	return NewEngine(h.engine.registry, opts...), &chunks
 }
 
 func requireChunkTypes(chunks []contracts.Chunk, want []contracts.ChunkType) error {
