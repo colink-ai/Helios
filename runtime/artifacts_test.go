@@ -54,3 +54,42 @@ func TestFileArtifactStoreRejectsReadOutsideRoot(t *testing.T) {
 		t.Fatalf("outside read should fail")
 	}
 }
+
+func TestFileArtifactStoreSaveBytes(t *testing.T) {
+	store := NewFileArtifactStore(t.TempDir())
+	saved, err := store.SaveArtifactBytes(context.Background(), contracts.Artifact{
+		SessionID: "session-1",
+		Type:      contracts.ArtifactData,
+		Name:      "blob.bin",
+		MimeType:  "application/octet-stream",
+	}, []byte{0, 1, 2, 255})
+	if err != nil {
+		t.Fatalf("save bytes: %v", err)
+	}
+	data, err := store.ReadArtifact(context.Background(), saved)
+	if err != nil {
+		t.Fatalf("read bytes: %v", err)
+	}
+	if len(data) != 4 || data[3] != 255 {
+		t.Fatalf("unexpected data: %v", data)
+	}
+}
+
+func TestFileArtifactStoreSaveReader(t *testing.T) {
+	store := NewFileArtifactStore(t.TempDir())
+	saved, err := store.SaveArtifactReader(context.Background(), contracts.Artifact{
+		SessionID: "session-1",
+		Type:      contracts.ArtifactDocument,
+		Name:      "doc.txt",
+	}, strings.NewReader("streamed"))
+	if err != nil {
+		t.Fatalf("save reader: %v", err)
+	}
+	data, err := store.ReadArtifact(context.Background(), saved)
+	if err != nil {
+		t.Fatalf("read reader: %v", err)
+	}
+	if string(data) != "streamed" {
+		t.Fatalf("unexpected data: %q", data)
+	}
+}

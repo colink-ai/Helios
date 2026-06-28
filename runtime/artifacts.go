@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,12 @@ type ArtifactStore interface {
 	ReadArtifact(ctx context.Context, artifact contracts.Artifact) ([]byte, error)
 }
 
+// BinaryArtifactStore persists artifacts from bytes or streams.
+type BinaryArtifactStore interface {
+	SaveArtifactBytes(ctx context.Context, artifact contracts.Artifact, data []byte) (contracts.Artifact, error)
+	SaveArtifactReader(ctx context.Context, artifact contracts.Artifact, reader io.Reader) (contracts.Artifact, error)
+}
+
 // FileArtifactStore stores artifacts below one root directory.
 type FileArtifactStore struct {
 	root string
@@ -27,7 +35,15 @@ func NewFileArtifactStore(root string) *FileArtifactStore {
 	return &FileArtifactStore{root: root}
 }
 
-func (s *FileArtifactStore) SaveArtifact(_ context.Context, artifact contracts.Artifact) (contracts.Artifact, error) {
+func (s *FileArtifactStore) SaveArtifact(ctx context.Context, artifact contracts.Artifact) (contracts.Artifact, error) {
+	return s.SaveArtifactBytes(ctx, artifact, []byte(artifact.Content))
+}
+
+func (s *FileArtifactStore) SaveArtifactBytes(ctx context.Context, artifact contracts.Artifact, data []byte) (contracts.Artifact, error) {
+	return s.SaveArtifactReader(ctx, artifact, bytesReader(data))
+}
+
+func (s *FileArtifactStore) SaveArtifactReader(_ context.Context, artifact contracts.Artifact, reader io.Reader) (contracts.Artifact, error) {
 	if s.root == "" {
 		return contracts.Artifact{}, fmt.Errorf("artifact root is required")
 	}
@@ -48,7 +64,15 @@ func (s *FileArtifactStore) SaveArtifact(_ context.Context, artifact contracts.A
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return contracts.Artifact{}, err
 	}
-	if err := os.WriteFile(path, []byte(artifact.Content), 0o644); err != nil {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return contracts.Artifact{}, err
+	}
+	if _, err := io.Copy(file, reader); err != nil {
+		_ = file.Close()
+		return contracts.Artifact{}, err
+	}
+	if err := file.Close(); err != nil {
 		return contracts.Artifact{}, err
 	}
 	artifact.Path = path
@@ -57,6 +81,10 @@ func (s *FileArtifactStore) SaveArtifact(_ context.Context, artifact contracts.A
 		artifact.CreatedAt = time.Now().UTC()
 	}
 	return artifact, nil
+}
+
+func bytesReader(data []byte) io.Reader {
+	return bytes.NewReader(data)
 }
 
 func (s *FileArtifactStore) ReadArtifact(_ context.Context, artifact contracts.Artifact) ([]byte, error) {
