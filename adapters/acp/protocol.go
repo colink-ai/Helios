@@ -44,7 +44,7 @@ type InitializeResult struct {
 type SessionParams struct {
 	CWD        string `json:"cwd,omitempty"`
 	SessionID  string `json:"sessionId,omitempty"`
-	MCPServers []any  `json:"mcpServers,omitempty"`
+	MCPServers []any  `json:"mcpServers"`
 }
 
 type PromptParams struct {

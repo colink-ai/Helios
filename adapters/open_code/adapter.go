@@ -47,10 +47,6 @@ func NewAdapter(opts ...Option) helios.Adapter {
 		BuildEnv: func(req helios.SessionRequest) []string {
 			return buildEnv(req)
 		},
-		ConfigureModelViaACP: true,
-		ModelRef: func(req helios.SessionRequest) string {
-			return req.Agent.DefaultModel
-		},
 	})
 }
 

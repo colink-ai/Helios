@@ -284,6 +284,13 @@ func TestProtocolAndTransportHelpers(t *testing.T) {
 	if req.JSONRPC != "2.0" || req.Method != "method" {
 		t.Fatalf("unexpected request: %+v", req)
 	}
+	sessionParams, err := json.Marshal(SessionParams{MCPServers: []any{}})
+	if err != nil {
+		t.Fatalf("marshal session params: %v", err)
+	}
+	if !strings.Contains(string(sessionParams), `"mcpServers":[]`) {
+		t.Fatalf("empty mcpServers must be serialized for strict ACP CLIs: %s", string(sessionParams))
+	}
 	for _, value := range []any{float64(1), 2, int64(3), "four", map[string]any{"x": 1}} {
 		if idKey(value) == "" {
 			t.Fatalf("empty id key for %#v", value)

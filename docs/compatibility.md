@@ -42,6 +42,10 @@ Useful environment variables:
 | `HELIOS_MODEL` | Optional default model name. |
 | `HELIOS_PROMPT` | Prompt sent to the real agent. Defaults to asking for `helios-ok`. |
 | `HELIOS_EXPECT_CONTAINS` | Expected substring in the real model response. Defaults to `helios-ok`; set empty to only require non-empty output. |
+| `HELIOS_RUN_MULTIMODAL` | Set to `1` to validate image input with an in-memory red PNG. |
+| `HELIOS_MULTIMODAL_PROMPT` | Prompt used for the multimodal test. Defaults to asking for the image color. |
+| `HELIOS_MULTIMODAL_EXPECT_CONTAINS` | Expected substring for the multimodal response. Defaults to `red`. |
+| `HELIOS_EXPECT_MULTIMODAL_FAILURE` | Set to `1` when validating a model that should fail or not satisfy the visual task. |
 | `HELIOS_TIMEOUT_SECONDS` | End-to-end timeout. Defaults to 120 seconds. |
 | `HELIOS_WORKDIR` | Optional working directory for the agent process. Defaults to a temporary directory. |
 | `HELIOS_RUNTIME_HOME` | Optional runtime home/config directory. Defaults to a temporary directory. |

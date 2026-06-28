@@ -103,14 +103,94 @@ func TestRealAgentCLIOneShotRun(t *testing.T) {
 	assertOutput(t, result.Output, cfg.expectContains)
 }
 
+func TestRealAgentCLIMultimodalPrompt(t *testing.T) {
+	cfg := loadIntegrationConfig(t)
+	if !cfg.runMultimodal {
+		t.Skip("set HELIOS_RUN_MULTIMODAL=1 to validate image input against the real CLI")
+	}
+	registry := helios.NewRegistry()
+	if err := all.Register(registry); err != nil {
+		t.Fatalf("register adapters: %v", err)
+	}
+	var chunks []contracts.Chunk
+	engine := helios.NewEngine(registry, helios.WithEventSink(helios.EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		if event.Chunk != nil {
+			chunks = append(chunks, *event.Chunk)
+		}
+		return nil
+	})))
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
+	defer cancel()
+
+	handle, err := engine.StartSession(ctx, helios.SessionRequest{
+		SessionID:   helios.NewID("integration-mm"),
+		Agent:       cfg.agent,
+		WorkDir:     cfg.workDir,
+		RuntimeHome: cfg.runtimeHome,
+	})
+	if err != nil {
+		t.Fatalf("start real multimodal session: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stopCancel()
+		if err := engine.StopSession(stopCtx, handle.ID); err != nil {
+			t.Logf("stop real multimodal session: %v", err)
+		}
+	}()
+
+	result, err := engine.Prompt(ctx, helios.PromptRequest{
+		SessionID: handle.ID,
+		Input:     cfg.multimodalPrompt,
+		Images: []contracts.ImageContent{{
+			MimeType: "image/png",
+			Data:     redPixelPNGBase64,
+		}},
+	})
+	if cfg.expectMultimodalFailure {
+		if err != nil {
+			t.Logf("multimodal prompt failed as expected: %v", err)
+			return
+		}
+		output := ""
+		if result != nil {
+			output = result.Output
+		}
+		if strings.TrimSpace(output) == "" {
+			output = textFromChunks(chunks)
+		}
+		if cfg.multimodalExpectContains != "" && strings.Contains(strings.ToLower(output), strings.ToLower(cfg.multimodalExpectContains)) {
+			t.Fatalf("expected multimodal prompt not to satisfy visual expectation %q, got output %q", cfg.multimodalExpectContains, output)
+		}
+		t.Logf("multimodal prompt did not satisfy visual expectation as expected; output length=%d chunk summary=%s", len(output), chunkSummary(chunks))
+		return
+	}
+	if err != nil {
+		t.Fatalf("prompt real multimodal session: %v", err)
+	}
+	if result == nil {
+		t.Fatalf("multimodal result is nil")
+	}
+	output := result.Output
+	if strings.TrimSpace(output) == "" {
+		output = textFromChunks(chunks)
+	}
+	t.Logf("multimodal chunk summary: %s", chunkSummary(chunks))
+	assertOutput(t, output, cfg.multimodalExpectContains)
+}
+
 type integrationConfig struct {
-	agent          helios.AgentSpec
-	workDir        string
-	runtimeHome    string
-	prompt         string
-	expectContains string
-	timeout        time.Duration
-	runOneShot     bool
+	agent                    helios.AgentSpec
+	workDir                  string
+	runtimeHome              string
+	prompt                   string
+	expectContains           string
+	multimodalPrompt         string
+	multimodalExpectContains string
+	timeout                  time.Duration
+	runOneShot               bool
+	runMultimodal            bool
+	expectMultimodalFailure  bool
 }
 
 func loadIntegrationConfig(t *testing.T) integrationConfig {
@@ -153,6 +233,8 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 
 	prompt := envDefault("HELIOS_PROMPT", "Reply with exactly: helios-ok")
 	expect := envDefault("HELIOS_EXPECT_CONTAINS", "helios-ok")
+	multimodalPrompt := envDefault("HELIOS_MULTIMODAL_PROMPT", "The attached image is a single-color square. Reply with exactly one lowercase English word for its color.")
+	multimodalExpect := envDefault("HELIOS_MULTIMODAL_EXPECT_CONTAINS", "red")
 	agent := helios.AgentSpec{
 		ID:           "integration-agent",
 		Type:         agentType,
@@ -166,13 +248,17 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 	}
 	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v workDir=%s runtimeHome=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", workDir, runtimeHome)
 	return integrationConfig{
-		agent:          agent,
-		workDir:        workDir,
-		runtimeHome:    runtimeHome,
-		prompt:         prompt,
-		expectContains: expect,
-		timeout:        timeout,
-		runOneShot:     os.Getenv("HELIOS_RUN_ONESHOT") == "1",
+		agent:                    agent,
+		workDir:                  workDir,
+		runtimeHome:              runtimeHome,
+		prompt:                   prompt,
+		expectContains:           expect,
+		multimodalPrompt:         multimodalPrompt,
+		multimodalExpectContains: multimodalExpect,
+		timeout:                  timeout,
+		runOneShot:               os.Getenv("HELIOS_RUN_ONESHOT") == "1",
+		runMultimodal:            os.Getenv("HELIOS_RUN_MULTIMODAL") == "1",
+		expectMultimodalFailure:  os.Getenv("HELIOS_EXPECT_MULTIMODAL_FAILURE") == "1",
 	}
 }
 
@@ -218,3 +304,13 @@ func textFromChunks(chunks []contracts.Chunk) string {
 	}
 	return fmt.Sprint(strings.Join(parts, ""))
 }
+
+func chunkSummary(chunks []contracts.Chunk) string {
+	parts := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		parts = append(parts, fmt.Sprintf("%s:%d", chunk.Type, len(chunk.Content)))
+	}
+	return strings.Join(parts, ",")
+}
+
+const redPixelPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII="
