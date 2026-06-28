@@ -38,18 +38,19 @@ type BaseAdapter struct {
 }
 
 type session struct {
-	id             string
-	agentSessionID string
-	cmd            *exec.Cmd
-	cancel         context.CancelFunc
-	transport      *transport
-	status         helios.SessionStatus
-	output         strings.Builder
-	stderr         strings.Builder
-	onChunk        helios.ChunkHandler
-	pendingRequest any
-	nativeResume   bool
-	mu             sync.Mutex
+	id               string
+	agentSessionID   string
+	cmd              *exec.Cmd
+	cancel           context.CancelFunc
+	transport        *transport
+	status           helios.SessionStatus
+	output           strings.Builder
+	stderr           strings.Builder
+	onChunk          helios.ChunkHandler
+	pendingRequest   any
+	pendingQuestions []contracts.QuestionItem
+	nativeResume     bool
+	mu               sync.Mutex
 }
 
 func NewBaseAdapter(config Config) *BaseAdapter {
@@ -290,14 +291,16 @@ func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, _ stri
 	}
 	s.mu.Lock()
 	pending := s.pendingRequest
+	questions := append([]contracts.QuestionItem(nil), s.pendingQuestions...)
 	s.pendingRequest = nil
+	s.pendingQuestions = nil
 	s.mu.Unlock()
 	if pending == nil {
 		return fmt.Errorf("session %s has no pending tool result request", sessionID)
 	}
 	return s.transport.sendResponse(pending, map[string]any{
 		"action":  "accept",
-		"content": result,
+		"content": buildElicitationContent(result, questions),
 	}, nil)
 }
 
@@ -371,14 +374,39 @@ func (a *BaseAdapter) handleNotification(s *session, method string, params json.
 	}
 }
 
-func (a *BaseAdapter) handleRequest(s *session, id any, method string, _ json.RawMessage) {
+func (a *BaseAdapter) handleRequest(s *session, id any, method string, params json.RawMessage) {
 	if method == "elicitation/create" {
+		elicit, err := parseElicitation(params)
+		if err != nil {
+			_ = s.transport.sendResponse(id, map[string]any{"action": "decline"}, nil)
+			return
+		}
+		if elicit.Mode != "" && elicit.Mode != "form" {
+			_ = s.transport.sendResponse(id, map[string]any{"action": "decline"}, nil)
+			return
+		}
+		questions := parseElicitationQuestions(elicit.RequestedSchema.Properties, elicit.Message)
+		if len(questions) == 0 {
+			_ = s.transport.sendResponse(id, map[string]any{"action": "decline"}, nil)
+			return
+		}
+		toolCallID := elicit.ToolCallID
+		if toolCallID == "" {
+			toolCallID = fmt.Sprintf("elicit-%v", id)
+		}
 		s.mu.Lock()
 		s.pendingRequest = id
+		s.pendingQuestions = questions
 		cb := s.onChunk
 		s.mu.Unlock()
 		if cb != nil {
-			cb(contracts.Chunk{Type: contracts.ChunkQuestion, ToolName: "AskUserQuestion"})
+			cb(contracts.Chunk{
+				Type:      contracts.ChunkQuestion,
+				ToolName:  "AskUserQuestion",
+				ToolID:    toolCallID,
+				Questions: questions,
+				Raw:       params,
+			})
 		}
 		return
 	}

@@ -118,6 +118,63 @@ func TestBaseAdapterRunE2E(t *testing.T) {
 	assertChunkTypes(t, chunks, contracts.ChunkThinking, contracts.ChunkText, contracts.ChunkToolUse, contracts.ChunkToolResult, contracts.ChunkUsage, contracts.ChunkStatus)
 }
 
+func TestBaseAdapterElicitationE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-elicit",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	questionCh := make(chan contracts.Chunk, 1)
+	resultCh := make(chan *helios.RunResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "please ask"}, func(chunk contracts.Chunk) {
+			if chunk.Type == contracts.ChunkQuestion {
+				questionCh <- chunk
+			}
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	var question contracts.Chunk
+	select {
+	case question = <-questionCh:
+	case err := <-errCh:
+		t.Fatalf("prompt failed before question: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for question")
+	}
+	if question.ToolID != "tool-question" || len(question.Questions) != 1 || question.Questions[0].Options[0].Label != "A" {
+		t.Fatalf("unexpected question: %+v", question)
+	}
+	if err := adapter.SendToolResult(ctx, handle.ID, question.ToolID, `{"question_0":"A"}`); err != nil {
+		t.Fatalf("send tool result: %v", err)
+	}
+
+	select {
+	case result := <-resultCh:
+		if result.Output != "answer accepted" {
+			t.Fatalf("output = %q", result.Output)
+		}
+	case err := <-errCh:
+		t.Fatalf("prompt failed: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for prompt result")
+	}
+}
+
 func newFakeAdapter() *BaseAdapter {
 	return NewBaseAdapter(Config{
 		CLIPath:        os.Args[0],
@@ -152,13 +209,23 @@ func runFakeACPAgent() {
 	scanner := bufio.NewScanner(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
 	defer writer.Flush()
+	var pendingPromptID any
+	waitingForElicitation := false
 	for scanner.Scan() {
 		var req struct {
 			ID     any             `json:"id"`
 			Method string          `json:"method"`
+			Result json.RawMessage `json:"result"`
 			Params json.RawMessage `json:"params"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			continue
+		}
+		if req.Method == "" && waitingForElicitation {
+			waitingForElicitation = false
+			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "answer accepted"}})
+			writeFakeResult(writer, pendingPromptID, map[string]any{"stopReason": "end_turn"})
+			pendingPromptID = nil
 			continue
 		}
 		switch req.Method {
@@ -178,6 +245,36 @@ func runFakeACPAgent() {
 			_ = json.Unmarshal(req.Params, &params)
 			writeFakeResult(writer, req.ID, map[string]any{"sessionId": params.SessionID})
 		case "session/prompt":
+			var params PromptParams
+			_ = json.Unmarshal(req.Params, &params)
+			if fakePromptText(params) == "please ask" {
+				pendingPromptID = req.ID
+				waitingForElicitation = true
+				writeFake(writer, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      "elicit-1",
+					"method":  "elicitation/create",
+					"params": map[string]any{
+						"mode":       "form",
+						"sessionId":  params.SessionID,
+						"toolCallId": "tool-question",
+						"message":    "Choose",
+						"requestedSchema": map[string]any{
+							"properties": map[string]any{
+								"question_0": map[string]any{
+									"type":  "string",
+									"title": "Choice",
+									"oneOf": []any{map[string]any{
+										"const": "A",
+										"title": "A — Alpha",
+									}},
+								},
+							},
+						},
+					},
+				})
+				continue
+			}
 			emitFakeUpdate(writer, "agent_thought_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "thinking"}})
 			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "hello from fake"}})
 			emitFakeUpdate(writer, "tool_call", map[string]any{"toolCallId": "tool-1", "title": "search", "rawInput": map[string]any{"q": "helios"}})
@@ -191,6 +288,15 @@ func runFakeACPAgent() {
 			writeFakeError(writer, req.ID, -32601, "unknown method "+req.Method)
 		}
 	}
+}
+
+func fakePromptText(params PromptParams) string {
+	for _, block := range params.Prompt {
+		if block.Type == "text" {
+			return block.Text
+		}
+	}
+	return ""
 }
 
 func emitFakeUpdate(writer *bufio.Writer, typ string, fields map[string]any) {
