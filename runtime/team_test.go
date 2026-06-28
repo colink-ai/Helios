@@ -83,3 +83,33 @@ func TestTeamRunnerContinueOnError(t *testing.T) {
 		t.Fatalf("expected node error: %+v", result)
 	}
 }
+
+func TestTeamRunnerSkipsDisabledNode(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	runner := NewTeamRunner(NewEngine(reg))
+	result, err := runner.Run(context.Background(), TeamRunRequest{
+		Team: contracts.AgentTeam{Graph: &contracts.WorkGraph{Nodes: []contracts.WorkNode{
+			{ID: "n1", Type: "agent", AgentID: "agent-1", Metadata: map[string]any{"condition": "skip"}},
+			{ID: "n2", Type: "agent", AgentID: "agent-2"},
+		}}},
+		Agents: map[string]AgentSpec{
+			"agent-1": {Type: "test"},
+			"agent-2": {Type: "test"},
+		},
+		Input: "hello",
+	})
+	if err != nil {
+		t.Fatalf("run team: %v", err)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0] != "n1" || len(result.Results) != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}

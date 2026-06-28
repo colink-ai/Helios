@@ -207,7 +207,10 @@ teamResult, err := runner.Run(ctx, runtime.TeamRunRequest{
 ```
 
 This is not a workflow platform. It is a small runtime primitive for sequential
-agent teams, A2A message capture, and future handoff execution.
+agent teams, A2A message capture, and future handoff execution. WorkGraph edges
+are used for deterministic ordering. Nodes can be skipped with
+`metadata.condition` set to `skip`, `never`, `disabled`, or `false`; parallel
+branches and joins are intentionally outside the current runner.
 
 ## Diagnostics
 

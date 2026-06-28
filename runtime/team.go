@@ -26,6 +26,7 @@ type TeamRunResult struct {
 	Messages   []contracts.A2AMessage `json:"messages,omitempty"`
 	Results    map[string]*RunResult  `json:"results,omitempty"`
 	NodeErrors map[string]string      `json:"nodeErrors,omitempty"`
+	Skipped    []string               `json:"skipped,omitempty"`
 }
 
 // TeamRunner executes simple WorkGraph-based agent teams through an Engine.
@@ -53,6 +54,10 @@ func (r *TeamRunner) Run(ctx context.Context, req TeamRunRequest) (*TeamRunResul
 	input := req.Input
 	var fromAgent string
 	for _, node := range nodes {
+		if shouldSkipNode(node) {
+			result.Skipped = append(result.Skipped, node.ID)
+			continue
+		}
 		spec, ok := req.Agents[node.AgentID]
 		if !ok {
 			return nil, fmt.Errorf("agent spec not found for node %s agent %s", node.ID, node.AgentID)
@@ -93,6 +98,20 @@ func (r *TeamRunner) Run(ctx context.Context, req TeamRunRequest) (*TeamRunResul
 		result.NodeErrors = nil
 	}
 	return result, nil
+}
+
+func shouldSkipNode(node contracts.WorkNode) bool {
+	if node.Metadata == nil {
+		return false
+	}
+	switch value := node.Metadata["condition"].(type) {
+	case string:
+		return value == "never" || value == "skip" || value == "disabled"
+	case bool:
+		return !value
+	default:
+		return false
+	}
 }
 
 func orderedAgentNodes(team contracts.AgentTeam) []contracts.WorkNode {
