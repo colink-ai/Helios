@@ -66,14 +66,14 @@ func (h *CompatibilityHarness) Run(ctx context.Context, spec AgentSpec, checks [
 	return report
 }
 
-func (h *CompatibilityHarness) runCheck(ctx context.Context, spec AgentSpec, check CompatibilityCheck) CompatibilityResult {
+func (h *CompatibilityHarness) runCheck(ctx context.Context, spec AgentSpec, check CompatibilityCheck) (result CompatibilityResult) {
 	started := time.Now()
 	if check.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, check.Timeout)
 		defer cancel()
 	}
-	result := CompatibilityResult{Scenario: check.Scenario}
+	result = CompatibilityResult{Scenario: check.Scenario}
 	defer func() { result.Duration = time.Since(started) }()
 
 	switch check.Scenario {
@@ -111,25 +111,37 @@ func (h *CompatibilityHarness) runCheck(ctx context.Context, spec AgentSpec, che
 }
 
 func (h *CompatibilityHarness) runOneShot(ctx context.Context, spec AgentSpec, check CompatibilityCheck) (*RunResult, []contracts.Chunk, error) {
-	run, err := h.engine.Run(ctx, RunRequest{Agent: spec, Input: check.Input})
-	return run, nil, err
+	engine, chunks := h.captureEngine()
+	run, err := engine.Run(ctx, RunRequest{Agent: spec, Input: check.Input})
+	return run, *chunks, err
 }
 
 func (h *CompatibilityHarness) runSession(ctx context.Context, spec AgentSpec, check CompatibilityCheck) (*RunResult, []contracts.Chunk, string, error) {
-	handle, err := h.engine.StartSession(ctx, SessionRequest{
+	engine, chunks := h.captureEngine()
+	handle, err := engine.StartSession(ctx, SessionRequest{
 		Agent:           spec,
 		ResumeSessionID: check.ResumeSessionID,
 	})
 	if err != nil {
 		return nil, nil, "", err
 	}
-	defer h.engine.StopSession(context.Background(), handle.ID)
-	chunks := []contracts.Chunk{}
-	run, err := h.engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: check.Input})
+	defer engine.StopSession(context.Background(), handle.ID)
+	run, err := engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: check.Input})
 	if err != nil {
-		return nil, chunks, handle.AgentSessionID, err
+		return nil, *chunks, handle.AgentSessionID, err
 	}
-	return run, chunks, handle.AgentSessionID, nil
+	return run, *chunks, handle.AgentSessionID, nil
+}
+
+func (h *CompatibilityHarness) captureEngine() (*Engine, *[]contracts.Chunk) {
+	chunks := []contracts.Chunk{}
+	sink := EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		if event.Chunk != nil {
+			chunks = append(chunks, *event.Chunk)
+		}
+		return nil
+	})
+	return NewEngine(h.engine.registry, WithEventSink(sink), WithSessionStore(h.engine.store)), &chunks
 }
 
 func requireChunkTypes(chunks []contracts.Chunk, want []contracts.ChunkType) error {
