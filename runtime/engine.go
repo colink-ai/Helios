@@ -131,6 +131,7 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 			return nil, err
 		}
 	}
+	e.startSessionEventForwarder(ctx, handle.ID, req, adapter)
 	return handle, nil
 }
 
@@ -140,6 +141,31 @@ func (e *Engine) cleanupStartedSession(ctx context.Context, sessionID string, ad
 	delete(e.sessions, sessionID)
 	delete(e.sessionOf, sessionID)
 	e.mu.Unlock()
+}
+
+func (e *Engine) startSessionEventForwarder(ctx context.Context, sessionID string, req SessionRequest, adapter Adapter) {
+	source, ok := adapter.(SessionEventSource)
+	if !ok {
+		return
+	}
+	events, err := source.SessionEvents(ctx, sessionID)
+	if err != nil || events == nil {
+		return
+	}
+	go func() {
+		for event := range events {
+			runtimeEvent := contracts.NewEvent(contracts.EventRuntimeError)
+			runtimeEvent.RunID = req.RunID
+			runtimeEvent.SessionID = sessionID
+			runtimeEvent.AgentID = req.Agent.ID
+			runtimeEvent.Error = event.Error
+			runtimeEvent.Metadata = map[string]any{"adapterEventType": event.Type}
+			for key, value := range event.Metadata {
+				runtimeEvent.Metadata[key] = value
+			}
+			_ = e.emit(ctx, runtimeEvent)
+		}
+	}()
 }
 
 // Prompt sends input to an active session and emits each normalized chunk.

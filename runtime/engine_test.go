@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/colink-ai/helios/contracts"
 )
@@ -177,6 +178,15 @@ func (a *permissionAdapter) SendPermissionResult(_ context.Context, _ string, _ 
 	return nil
 }
 
+type eventSourceAdapter struct {
+	testAdapter
+	events chan SessionRuntimeEvent
+}
+
+func (a *eventSourceAdapter) SessionEvents(context.Context, string) (<-chan SessionRuntimeEvent, error) {
+	return a.events, nil
+}
+
 func TestEngineSendPermissionResult(t *testing.T) {
 	ctx := context.Background()
 	adapter := &permissionAdapter{}
@@ -199,6 +209,45 @@ func TestEngineSendPermissionResult(t *testing.T) {
 	}
 	if !adapter.decision.Allow || adapter.decision.Reason != "ok" {
 		t.Fatalf("unexpected decision: %+v", adapter.decision)
+	}
+}
+
+func TestEngineForwardsSessionRuntimeEvents(t *testing.T) {
+	ctx := context.Background()
+	adapter := &eventSourceAdapter{events: make(chan SessionRuntimeEvent, 1)}
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "event-source",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return adapter, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	received := make(chan contracts.RunEvent, 4)
+	engine := NewEngine(reg, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		received <- event
+		return nil
+	})))
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "session-events", Agent: AgentSpec{Type: "event-source"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	adapter.events <- SessionRuntimeEvent{SessionID: handle.ID, Type: "process.exited", Error: "exit 1"}
+	close(adapter.events)
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-received:
+			if event.Type == contracts.EventRuntimeError {
+				if event.Error != "exit 1" || event.Metadata["adapterEventType"] != "process.exited" {
+					t.Fatalf("unexpected runtime event: %+v", event)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("runtime event not forwarded")
+		}
 	}
 }
 

@@ -83,6 +83,21 @@ type DiagnosticProvider interface {
 	Diagnostics(ctx context.Context, sessionID string) (SessionDiagnostics, error)
 }
 
+// SessionRuntimeEvent is emitted by adapters for out-of-band runtime changes
+// such as process exits.
+type SessionRuntimeEvent struct {
+	SessionID string         `json:"sessionId"`
+	Type      string         `json:"type"`
+	Error     string         `json:"error,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+// SessionEventSource is implemented by adapters that can push runtime events
+// independent of Prompt streaming.
+type SessionEventSource interface {
+	SessionEvents(ctx context.Context, sessionID string) (<-chan SessionRuntimeEvent, error)
+}
+
 // SessionHandle is returned after a session has been created.
 type SessionHandle struct {
 	ID             string         `json:"id"`

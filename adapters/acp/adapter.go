@@ -43,6 +43,7 @@ type session struct {
 	cmd                 *exec.Cmd
 	cancel              context.CancelFunc
 	waitDone            chan struct{}
+	events              chan helios.SessionRuntimeEvent
 	transport           *transport
 	status              helios.SessionStatus
 	output              strings.Builder
@@ -120,7 +121,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 		return nil, err
 	}
 
-	s := &session{cmd: cmd, cancel: procCancel, status: helios.SessionStarting, waitDone: make(chan struct{})}
+	s := &session{id: sessionID, cmd: cmd, cancel: procCancel, status: helios.SessionStarting, waitDone: make(chan struct{}), events: make(chan helios.SessionRuntimeEvent, 4)}
 	go monitorProcess(s)
 	go captureStderr(stderr, s)
 	t := newTransport(stdout, stdin, func(id any, method string, params json.RawMessage) {
@@ -323,7 +324,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 		procCancel()
 		return helios.Capabilities{}, err
 	}
-	s := &session{cmd: cmd, cancel: procCancel, waitDone: make(chan struct{})}
+	s := &session{cmd: cmd, cancel: procCancel, waitDone: make(chan struct{}), events: make(chan helios.SessionRuntimeEvent, 4)}
 	go monitorProcess(s)
 	go captureStderr(stderr, s)
 	t := newTransport(stdout, stdin, nil, nil)
@@ -442,6 +443,14 @@ func (a *BaseAdapter) Diagnostics(_ context.Context, sessionID string) (helios.S
 	return diag, nil
 }
 
+func (a *BaseAdapter) SessionEvents(_ context.Context, sessionID string) (<-chan helios.SessionRuntimeEvent, error) {
+	s, err := a.get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.events, nil
+}
+
 func (a *BaseAdapter) get(sessionID string) (*session, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -481,10 +490,26 @@ func monitorProcess(s *session) {
 	s.mu.Lock()
 	s.exitErr = err
 	s.exited = true
-	if s.status != helios.SessionStopped {
+	stopped := s.status == helios.SessionStopped
+	sessionID := s.id
+	if !stopped {
 		s.status = helios.SessionFailed
 	}
 	s.mu.Unlock()
+	if !stopped && s.events != nil {
+		event := helios.SessionRuntimeEvent{
+			SessionID: sessionID,
+			Type:      "process.exited",
+			Metadata:  map[string]any{"exited": true},
+		}
+		if err != nil {
+			event.Error = err.Error()
+		}
+		s.events <- event
+	}
+	if s.events != nil {
+		close(s.events)
+	}
 	close(s.waitDone)
 }
 
