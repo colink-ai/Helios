@@ -1,0 +1,229 @@
+package acp
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/colink-ai/helios/contracts"
+	helios "github.com/colink-ai/helios/runtime"
+)
+
+func TestFakeACPAgentCLI(t *testing.T) {
+	if os.Getenv("HELIOS_FAKE_ACP") != "1" {
+		t.Skip("helper process only")
+	}
+	runFakeACPAgent()
+	os.Exit(0)
+}
+
+func TestBaseAdapterResidentSessionE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+		MCPServers: []helios.MCPServerSpec{{
+			Name: "knowledge",
+			Type: "http",
+			URL:  "http://127.0.0.1:9000/mcp",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	if handle.AgentSessionID != "fake-session-new" {
+		t.Fatalf("agent session id = %q", handle.AgentSessionID)
+	}
+
+	var chunks []contracts.Chunk
+	result, err := adapter.Prompt(ctx, helios.PromptRequest{
+		SessionID: handle.ID,
+		Input:     "hello",
+	}, func(chunk contracts.Chunk) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if result.Output != "hello from fake" {
+		t.Fatalf("output = %q", result.Output)
+	}
+	assertChunkTypes(t, chunks, contracts.ChunkThinking, contracts.ChunkText, contracts.ChunkToolUse, contracts.ChunkToolResult, contracts.ChunkUsage, contracts.ChunkStatus)
+
+	usedResume, err := adapter.UsedNativeResume(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("used resume: %v", err)
+	}
+	if usedResume {
+		t.Fatalf("new session should not use native resume")
+	}
+	if err := adapter.StopSession(ctx, handle.ID); err != nil {
+		t.Fatalf("stop session: %v", err)
+	}
+}
+
+func TestBaseAdapterResumeSessionE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID:       "host-session-resume",
+		ResumeSessionID: "agent-existing",
+		Agent:           helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start resume session: %v", err)
+	}
+	if handle.AgentSessionID != "agent-existing" {
+		t.Fatalf("agent session id = %q", handle.AgentSessionID)
+	}
+	usedResume, err := adapter.UsedNativeResume(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("used resume: %v", err)
+	}
+	if !usedResume {
+		t.Fatalf("resume session should use native resume")
+	}
+	_ = adapter.StopSession(ctx, handle.ID)
+}
+
+func TestBaseAdapterRunE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var chunks []contracts.Chunk
+	result, err := adapter.Run(ctx, helios.RunRequest{
+		RunID: "run-1",
+		Agent: helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+		Input: "run",
+	}, func(chunk contracts.Chunk) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.RunID != "run-1" || result.Output != "hello from fake" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	assertChunkTypes(t, chunks, contracts.ChunkThinking, contracts.ChunkText, contracts.ChunkToolUse, contracts.ChunkToolResult, contracts.ChunkUsage, contracts.ChunkStatus)
+}
+
+func newFakeAdapter() *BaseAdapter {
+	return NewBaseAdapter(Config{
+		CLIPath:        os.Args[0],
+		StartupTimeout: 2 * time.Second,
+		PromptTimeout:  2 * time.Second,
+		BuildArgs: func(helios.SessionRequest) []string {
+			return []string{"-test.run=TestFakeACPAgentCLI", "--"}
+		},
+		BuildEnv: func(helios.SessionRequest) []string {
+			return []string{"HELIOS_FAKE_ACP=1"}
+		},
+	})
+}
+
+func assertChunkTypes(t *testing.T, chunks []contracts.Chunk, want ...contracts.ChunkType) {
+	t.Helper()
+	got := make([]contracts.ChunkType, 0, len(chunks))
+	for _, chunk := range chunks {
+		got = append(got, chunk.Type)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("chunk types = %v, want %v; chunks=%+v", got, want, chunks)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("chunk types = %v, want %v; chunks=%+v", got, want, chunks)
+		}
+	}
+}
+
+func runFakeACPAgent() {
+	scanner := bufio.NewScanner(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+	defer writer.Flush()
+	for scanner.Scan() {
+		var req struct {
+			ID     any             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			continue
+		}
+		switch req.Method {
+		case "initialize":
+			writeFakeResult(writer, req.ID, map[string]any{
+				"protocolVersion": 2025,
+				"agentCapabilities": map[string]any{
+					"sessionResume": true,
+				},
+			})
+		case "session/new":
+			var params SessionParams
+			_ = json.Unmarshal(req.Params, &params)
+			writeFakeResult(writer, req.ID, map[string]any{"sessionId": "fake-session-new"})
+		case "session/resume":
+			var params SessionParams
+			_ = json.Unmarshal(req.Params, &params)
+			writeFakeResult(writer, req.ID, map[string]any{"sessionId": params.SessionID})
+		case "session/prompt":
+			emitFakeUpdate(writer, "agent_thought_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "thinking"}})
+			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "hello from fake"}})
+			emitFakeUpdate(writer, "tool_call", map[string]any{"toolCallId": "tool-1", "title": "search", "rawInput": map[string]any{"q": "helios"}})
+			emitFakeUpdate(writer, "tool_call_update", map[string]any{"toolCallId": "tool-1", "status": "completed", "content": []any{map[string]any{"type": "text", "text": "tool result"}}})
+			emitFakeUpdate(writer, "usage_update", map[string]any{"used": 7, "size": 100})
+			emitFakeUpdate(writer, "plan", map[string]any{"entries": []any{map[string]any{"priority": 1, "status": "done", "content": "tested"}}})
+			writeFakeResult(writer, req.ID, map[string]any{"stopReason": "end_turn"})
+		case "session/end":
+			writeFakeResult(writer, req.ID, map[string]any{"ok": true})
+		default:
+			writeFakeError(writer, req.ID, -32601, "unknown method "+req.Method)
+		}
+	}
+}
+
+func emitFakeUpdate(writer *bufio.Writer, typ string, fields map[string]any) {
+	fields["sessionUpdate"] = typ
+	writeFake(writer, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "session/update",
+		"params": map[string]any{
+			"sessionId": "fake-session-new",
+			"update":    fields,
+		},
+	})
+}
+
+func writeFakeResult(writer *bufio.Writer, id any, result any) {
+	writeFake(writer, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+func writeFakeError(writer *bufio.Writer, id any, code int, message string) {
+	writeFake(writer, map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": message}})
+}
+
+func writeFake(writer *bufio.Writer, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprintln(writer, string(data))
+	writer.Flush()
+}
+
+func TestFakeHelperIsNotLeaking(t *testing.T) {
+	if strings.Contains(strings.Join(os.Args, " "), "HELIOS_FAKE_ACP") {
+		t.Fatalf("unexpected fake helper args: %v", os.Args)
+	}
+}
