@@ -42,10 +42,13 @@ type session struct {
 	agentSessionID      string
 	cmd                 *exec.Cmd
 	cancel              context.CancelFunc
+	waitDone            chan struct{}
 	transport           *transport
 	status              helios.SessionStatus
 	output              strings.Builder
 	stderr              strings.Builder
+	exitErr             error
+	exited              bool
 	onChunk             helios.ChunkHandler
 	pendingElicitations map[string]pendingElicitation
 	pendingPermissions  map[string]any
@@ -117,7 +120,8 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 		return nil, err
 	}
 
-	s := &session{cmd: cmd, cancel: procCancel, status: helios.SessionStarting}
+	s := &session{cmd: cmd, cancel: procCancel, status: helios.SessionStarting, waitDone: make(chan struct{})}
+	go monitorProcess(s)
 	go captureStderr(stderr, s)
 	t := newTransport(stdout, stdin, func(id any, method string, params json.RawMessage) {
 		a.handleRequest(s, id, method, params)
@@ -319,7 +323,8 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 		procCancel()
 		return helios.Capabilities{}, err
 	}
-	s := &session{cmd: cmd, cancel: procCancel}
+	s := &session{cmd: cmd, cancel: procCancel, waitDone: make(chan struct{})}
+	go monitorProcess(s)
 	go captureStderr(stderr, s)
 	t := newTransport(stdout, stdin, nil, nil)
 	s.transport = t
@@ -413,12 +418,20 @@ func (a *BaseAdapter) Diagnostics(_ context.Context, sessionID string) (helios.S
 		return helios.SessionDiagnostics{}, err
 	}
 	s.mu.Lock()
+	metadata := map[string]any{
+		"nativeResume":   s.nativeResume,
+		"resumeStrategy": s.resumeStrategy,
+		"exited":         s.exited,
+	}
+	if s.exitErr != nil {
+		metadata["exitError"] = s.exitErr.Error()
+	}
 	diag := helios.SessionDiagnostics{
 		SessionID:      sessionID,
 		AgentSessionID: s.agentSessionID,
 		Status:         s.status,
 		Stderr:         s.stderr.String(),
-		Metadata:       map[string]any{"nativeResume": s.nativeResume, "resumeStrategy": s.resumeStrategy},
+		Metadata:       metadata,
 	}
 	s.mu.Unlock()
 	if s.transport != nil {
@@ -454,8 +467,25 @@ func (a *BaseAdapter) teardown(sessionID string, s *session) {
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
-		_, _ = s.cmd.Process.Wait()
+		if s.waitDone != nil {
+			select {
+			case <-s.waitDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
 	}
+}
+
+func monitorProcess(s *session) {
+	err := s.cmd.Wait()
+	s.mu.Lock()
+	s.exitErr = err
+	s.exited = true
+	if s.status != helios.SessionStopped {
+		s.status = helios.SessionFailed
+	}
+	s.mu.Unlock()
+	close(s.waitDone)
 }
 
 func (a *BaseAdapter) handleNotification(s *session, method string, params json.RawMessage) {

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"os/exec"
 	"testing"
 
 	helios "github.com/colink-ai/helios/runtime"
@@ -95,5 +96,20 @@ func TestTakePendingPermission(t *testing.T) {
 	key, pending = takePendingPermission(values, "")
 	if key == "" || pending == nil {
 		t.Fatalf("expected fallback pending, got %s %+v", key, pending)
+	}
+}
+
+func TestMonitorProcessRecordsExit(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 7")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	s := &session{cmd: cmd, status: helios.SessionRunning, waitDone: make(chan struct{})}
+	go monitorProcess(s)
+	<-s.waitDone
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.exited || s.exitErr == nil || s.status != helios.SessionFailed {
+		t.Fatalf("unexpected session state: exited=%v err=%v status=%s", s.exited, s.exitErr, s.status)
 	}
 }
