@@ -70,3 +70,30 @@ func TestNormalizeCapabilities(t *testing.T) {
 		t.Fatalf("unexpected capabilities: %+v", capabilities)
 	}
 }
+
+func TestTakePendingElicitation(t *testing.T) {
+	values := map[string]pendingElicitation{
+		"first":  {request: "r1"},
+		"second": {request: "r2"},
+	}
+	key, pending := takePendingElicitation(values, "second")
+	if key != "second" || pending.request != "r2" {
+		t.Fatalf("unexpected pending: %s %+v", key, pending)
+	}
+	key, pending = takePendingElicitation(values, "")
+	if key == "" || pending.request == nil {
+		t.Fatalf("expected fallback pending, got %s %+v", key, pending)
+	}
+}
+
+func TestTakePendingPermission(t *testing.T) {
+	values := map[string]any{"p1": "r1", "p2": "r2"}
+	key, pending := takePendingPermission(values, "p2")
+	if key != "p2" || pending != "r2" {
+		t.Fatalf("unexpected pending: %s %+v", key, pending)
+	}
+	key, pending = takePendingPermission(values, "")
+	if key == "" || pending == nil {
+		t.Fatalf("expected fallback pending, got %s %+v", key, pending)
+	}
+}

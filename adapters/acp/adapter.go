@@ -47,14 +47,17 @@ type session struct {
 	output              strings.Builder
 	stderr              strings.Builder
 	onChunk             helios.ChunkHandler
-	pendingRequest      any
-	pendingQuestions    []contracts.QuestionItem
-	pendingPermission   any
-	pendingPermissionID string
+	pendingElicitations map[string]pendingElicitation
+	pendingPermissions  map[string]any
 	nativeResume        bool
 	resumeStrategy      string
 	suppressReplay      bool
 	mu                  sync.Mutex
+}
+
+type pendingElicitation struct {
+	request   any
+	questions []contracts.QuestionItem
 }
 
 func NewBaseAdapter(config Config) *BaseAdapter {
@@ -337,35 +340,37 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 	return capabilities, nil
 }
 
-func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, _ string, result string) error {
+func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, toolCallID string, result string) error {
 	s, err := a.get(sessionID)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	pending := s.pendingRequest
-	questions := append([]contracts.QuestionItem(nil), s.pendingQuestions...)
-	s.pendingRequest = nil
-	s.pendingQuestions = nil
+	key, pending := takePendingElicitation(s.pendingElicitations, toolCallID)
+	if pending.request != nil {
+		delete(s.pendingElicitations, key)
+	}
 	s.mu.Unlock()
-	if pending == nil {
+	if pending.request == nil {
 		return fmt.Errorf("session %s has no pending tool result request", sessionID)
 	}
-	return s.transport.sendResponse(pending, map[string]any{
+	questions := append([]contracts.QuestionItem(nil), pending.questions...)
+	return s.transport.sendResponse(pending.request, map[string]any{
 		"action":  "accept",
 		"content": buildElicitationContent(result, questions),
 	}, nil)
 }
 
-func (a *BaseAdapter) SendPermissionResult(_ context.Context, sessionID string, _ string, decision helios.PermissionDecision) error {
+func (a *BaseAdapter) SendPermissionResult(_ context.Context, sessionID string, permissionID string, decision helios.PermissionDecision) error {
 	s, err := a.get(sessionID)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	pending := s.pendingPermission
-	s.pendingPermission = nil
-	s.pendingPermissionID = ""
+	key, pending := takePendingPermission(s.pendingPermissions, permissionID)
+	if pending != nil {
+		delete(s.pendingPermissions, key)
+	}
 	s.mu.Unlock()
 	if pending == nil {
 		return fmt.Errorf("session %s has no pending permission request", sessionID)
@@ -501,8 +506,10 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, params js
 			toolCallID = fmt.Sprintf("elicit-%v", id)
 		}
 		s.mu.Lock()
-		s.pendingRequest = id
-		s.pendingQuestions = questions
+		if s.pendingElicitations == nil {
+			s.pendingElicitations = map[string]pendingElicitation{}
+		}
+		s.pendingElicitations[toolCallID] = pendingElicitation{request: id, questions: questions}
 		cb := s.onChunk
 		s.mu.Unlock()
 		if cb != nil {
@@ -522,8 +529,10 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, params js
 			permission.ID = fmt.Sprintf("permission-%v", id)
 		}
 		s.mu.Lock()
-		s.pendingPermission = id
-		s.pendingPermissionID = permission.ID
+		if s.pendingPermissions == nil {
+			s.pendingPermissions = map[string]any{}
+		}
+		s.pendingPermissions[permission.ID] = id
 		cb := s.onChunk
 		s.mu.Unlock()
 		if cb != nil {
@@ -539,6 +548,32 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, params js
 		return
 	}
 	_ = s.transport.sendResponse(id, nil, &Error{Code: -32601, Message: "method not found"})
+}
+
+func takePendingElicitation(values map[string]pendingElicitation, key string) (string, pendingElicitation) {
+	if len(values) == 0 {
+		return "", pendingElicitation{}
+	}
+	if key != "" {
+		return key, values[key]
+	}
+	for k, value := range values {
+		return k, value
+	}
+	return "", pendingElicitation{}
+}
+
+func takePendingPermission(values map[string]any, key string) (string, any) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	if key != "" {
+		return key, values[key]
+	}
+	for k, value := range values {
+		return k, value
+	}
+	return "", nil
 }
 
 func (a *BaseAdapter) startAgentSession(ctx context.Context, req helios.SessionRequest, s *session, capabilities map[string]any, mcpServers []any) (json.RawMessage, error) {
