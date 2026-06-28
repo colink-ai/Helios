@@ -43,9 +43,12 @@ func (s *FileArtifactStore) SaveArtifactBytes(ctx context.Context, artifact cont
 	return s.SaveArtifactReader(ctx, artifact, bytesReader(data))
 }
 
-func (s *FileArtifactStore) SaveArtifactReader(_ context.Context, artifact contracts.Artifact, reader io.Reader) (contracts.Artifact, error) {
+func (s *FileArtifactStore) SaveArtifactReader(ctx context.Context, artifact contracts.Artifact, reader io.Reader) (contracts.Artifact, error) {
 	if s.root == "" {
 		return contracts.Artifact{}, fmt.Errorf("artifact root is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return contracts.Artifact{}, err
 	}
 	if artifact.ID == "" {
 		artifact.ID = NewID("artifact")
@@ -68,7 +71,7 @@ func (s *FileArtifactStore) SaveArtifactReader(_ context.Context, artifact contr
 	if err != nil {
 		return contracts.Artifact{}, err
 	}
-	if _, err := io.Copy(file, reader); err != nil {
+	if _, err := io.Copy(file, contextReader{ctx: ctx, reader: reader}); err != nil {
 		_ = file.Close()
 		return contracts.Artifact{}, err
 	}
@@ -85,6 +88,25 @@ func (s *FileArtifactStore) SaveArtifactReader(_ context.Context, artifact contr
 
 func bytesReader(data []byte) io.Reader {
 	return bytes.NewReader(data)
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.reader.Read(p)
+	if err != nil {
+		return n, err
+	}
+	if ctxErr := r.ctx.Err(); ctxErr != nil {
+		return n, ctxErr
+	}
+	return n, nil
 }
 
 func (s *FileArtifactStore) ReadArtifact(_ context.Context, artifact contracts.Artifact) ([]byte, error) {

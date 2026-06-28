@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -91,5 +92,27 @@ func TestFileArtifactStoreSaveReader(t *testing.T) {
 	}
 	if string(data) != "streamed" {
 		t.Fatalf("unexpected data: %q", data)
+	}
+}
+
+func TestFileArtifactStoreSaveReaderCanceled(t *testing.T) {
+	store := NewFileArtifactStore(t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.SaveArtifactReader(ctx, contracts.Artifact{Name: "x.txt"}, strings.NewReader("x")); err == nil {
+		t.Fatalf("canceled context should fail")
+	}
+}
+
+func TestContextReaderStopsAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := contextReader{ctx: ctx, reader: strings.NewReader("hello")}
+	buf := make([]byte, 2)
+	if _, err := reader.Read(buf); err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	cancel()
+	if _, err := reader.Read(buf); err == nil || err == io.EOF {
+		t.Fatalf("expected context error, got %v", err)
 	}
 }
