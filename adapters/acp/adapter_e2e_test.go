@@ -226,6 +226,31 @@ func TestBaseAdapterElicitationE2E(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterDetectCapabilitiesE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	capabilities, err := adapter.DetectCapabilities(ctx, helios.AgentSpec{
+		Type:               "fake",
+		Name:               "Fake ACP",
+		CLIPath:            os.Args[0],
+		SupportsMultimodal: true,
+	})
+	if err != nil {
+		t.Fatalf("detect capabilities: %v", err)
+	}
+	if capabilities.Protocol != "acp" || capabilities.AgentType != "fake" || capabilities.AgentName != "Fake ACP" {
+		t.Fatalf("unexpected identity: %+v", capabilities)
+	}
+	if !capabilities.NativeResume || !capabilities.SessionLoad || !capabilities.Usage || !capabilities.Plans || !capabilities.Artifacts || !capabilities.Questions || !capabilities.Multimodal {
+		t.Fatalf("unexpected capabilities: %+v", capabilities)
+	}
+	if capabilities.Metadata["protocolVersion"] != 2025 {
+		t.Fatalf("unexpected metadata: %+v", capabilities.Metadata)
+	}
+}
+
 func newFakeAdapter() *BaseAdapter {
 	return NewBaseAdapter(Config{
 		CLIPath:        os.Args[0],
@@ -286,6 +311,16 @@ func runFakeACPAgent() {
 				"agentCapabilities": map[string]any{
 					"sessionResume": true,
 					"sessionLoad":   true,
+					"features": map[string]any{
+						"artifacts":   true,
+						"elicitation": true,
+						"mcpServers":  true,
+						"permissions": true,
+						"plan":        true,
+						"tokenUsage":  true,
+						"usage":       true,
+						"vision":      true,
+					},
 				},
 			})
 		case "session/new":

@@ -136,6 +136,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	}
 	initResp := InitializeResult{}
 	_ = json.Unmarshal(initResult, &initResp)
+	capabilities := NormalizeCapabilities(req.Agent, initResp.AgentCapabilities)
 
 	mcpServers := ConvertMCPServers(req.MCPServers)
 	sessionResult, err := a.startAgentSession(startCtx, req, s, initResp.AgentCapabilities, mcpServers)
@@ -164,6 +165,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 		AgentSessionID: s.agentSessionID,
 		Status:         helios.SessionRunning,
 		Metadata: map[string]any{
+			"capabilities":   capabilities,
 			"nativeResume":   s.nativeResume,
 			"resumeStrategy": s.resumeStrategy,
 		},
@@ -273,6 +275,64 @@ func (a *BaseAdapter) CheckHealth(ctx context.Context, spec helios.AgentSpec) er
 		return err
 	}
 	return a.StopSession(ctx, handle.ID)
+}
+
+func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentSpec) (helios.Capabilities, error) {
+	cliPath := a.cliPath(spec)
+	if cliPath == "" {
+		return helios.Capabilities{}, fmt.Errorf("acp cli path is required")
+	}
+	startCtx, cancel := context.WithTimeout(ctx, a.startupTimeout())
+	defer cancel()
+	procCtx, procCancel := context.WithCancel(context.Background())
+	req := helios.SessionRequest{Agent: spec, WorkDir: spec.WorkDir, RuntimeHome: spec.RuntimeHome}
+	cmd := exec.CommandContext(procCtx, cliPath, a.buildArgs(req)...)
+	if spec.WorkDir != "" {
+		if abs, err := filepath.Abs(spec.WorkDir); err == nil {
+			cmd.Dir = abs
+		} else {
+			cmd.Dir = spec.WorkDir
+		}
+	}
+	cmd.Env = a.buildEnv(req)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		procCancel()
+		return helios.Capabilities{}, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		procCancel()
+		return helios.Capabilities{}, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		procCancel()
+		return helios.Capabilities{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		procCancel()
+		return helios.Capabilities{}, err
+	}
+	s := &session{cmd: cmd, cancel: procCancel}
+	go captureStderr(stderr, s)
+	t := newTransport(stdout, stdin, nil, nil)
+	s.transport = t
+	t.start()
+	defer a.teardown("", s)
+
+	initResult, err := t.sendRequest(startCtx, "initialize", InitializeParams{
+		ProtocolVersion:    2025,
+		ClientCapabilities: map[string]any{},
+	})
+	if err != nil {
+		return helios.Capabilities{}, fmt.Errorf("acp initialize failed: %w%s", err, s.stderrText())
+	}
+	initResp := InitializeResult{}
+	_ = json.Unmarshal(initResult, &initResp)
+	capabilities := NormalizeCapabilities(spec, initResp.AgentCapabilities)
+	capabilities.Metadata = map[string]any{"protocolVersion": initResp.ProtocolVersion}
+	return capabilities, nil
 }
 
 func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, _ string, result string) error {
@@ -581,6 +641,47 @@ func supportsLoad(capabilities map[string]any) bool {
 	if sessions, ok := capabilities["sessions"].(map[string]any); ok {
 		if value, ok := sessions["load"].(bool); ok {
 			return value
+		}
+	}
+	return false
+}
+
+func NormalizeCapabilities(spec helios.AgentSpec, raw map[string]any) helios.Capabilities {
+	return helios.Capabilities{
+		AgentType:          spec.Type,
+		AgentName:          spec.Name,
+		Protocol:           "acp",
+		ResidentSessions:   true,
+		OneShotRuns:        true,
+		NativeResume:       supportsResume(raw),
+		SessionLoad:        supportsLoad(raw),
+		MCPServers:         capabilityBool(raw, "mcpServers", "mcp", "servers"),
+		Questions:          capabilityBool(raw, "elicitation", "elicitationCreate", "questions", "askUserQuestion"),
+		ToolResults:        true,
+		Usage:              capabilityBool(raw, "usage", "usageUpdate", "tokenUsage"),
+		Plans:              capabilityBool(raw, "plan", "plans"),
+		Artifacts:          capabilityBool(raw, "artifacts", "files"),
+		Handoffs:           capabilityBool(raw, "handoffs", "handoff"),
+		PermissionRequests: capabilityBool(raw, "permissionRequests", "permissions"),
+		Multimodal:         spec.SupportsMultimodal || capabilityBool(raw, "multimodal", "images", "vision"),
+		Raw:                raw,
+	}
+}
+
+func capabilityBool(capabilities map[string]any, keys ...string) bool {
+	if capabilities == nil {
+		return false
+	}
+	for _, key := range keys {
+		if value, ok := capabilities[key].(bool); ok && value {
+			return true
+		}
+	}
+	if sessions, ok := capabilities["features"].(map[string]any); ok {
+		for _, key := range keys {
+			if value, ok := sessions[key].(bool); ok && value {
+				return true
+			}
 		}
 	}
 	return false

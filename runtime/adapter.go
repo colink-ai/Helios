@@ -36,6 +36,12 @@ type RunAdapter interface {
 	Run(ctx context.Context, req RunRequest, onChunk ChunkHandler) (*RunResult, error)
 }
 
+// CapabilityDetector is implemented by adapters that can inspect an installed
+// agent runtime and report its protocol capabilities.
+type CapabilityDetector interface {
+	DetectCapabilities(ctx context.Context, spec AgentSpec) (Capabilities, error)
+}
+
 // ToolResultSender is implemented by adapters that can resume blocked tool or
 // elicitation calls with user-provided results.
 type ToolResultSender interface {

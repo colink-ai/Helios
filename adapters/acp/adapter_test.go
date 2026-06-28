@@ -49,3 +49,24 @@ func TestSupportsLoad(t *testing.T) {
 		t.Fatalf("load=false should not be supported")
 	}
 }
+
+func TestNormalizeCapabilities(t *testing.T) {
+	capabilities := NormalizeCapabilities(helios.AgentSpec{
+		Type:               "fake",
+		Name:               "Fake",
+		SupportsMultimodal: true,
+	}, map[string]any{
+		"sessionResume": true,
+		"features": map[string]any{
+			"usage":     true,
+			"artifacts": true,
+			"handoffs":  true,
+		},
+	})
+	if capabilities.Protocol != "acp" || capabilities.AgentType != "fake" || capabilities.AgentName != "Fake" {
+		t.Fatalf("unexpected identity: %+v", capabilities)
+	}
+	if !capabilities.ResidentSessions || !capabilities.OneShotRuns || !capabilities.NativeResume || !capabilities.Usage || !capabilities.Artifacts || !capabilities.Handoffs || !capabilities.Multimodal {
+		t.Fatalf("unexpected capabilities: %+v", capabilities)
+	}
+}

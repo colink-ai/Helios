@@ -93,3 +93,53 @@ func TestEnginePromptAndStop(t *testing.T) {
 		t.Fatalf("unexpected events: %+v", events)
 	}
 }
+
+type detectingAdapter struct {
+	testAdapter
+}
+
+func (detectingAdapter) DetectCapabilities(context.Context, AgentSpec) (Capabilities, error) {
+	return Capabilities{Protocol: "test", NativeResume: true}, nil
+}
+
+func TestEngineDetectCapabilities(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "detecting",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return detectingAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register detecting: %v", err)
+	}
+	engine := NewEngine(reg)
+	capabilities, err := engine.DetectCapabilities(ctx, AgentSpec{Type: "detecting", Name: "Detector"})
+	if err != nil {
+		t.Fatalf("detect: %v", err)
+	}
+	if capabilities.AgentType != "detecting" || capabilities.AgentName != "Detector" || !capabilities.NativeResume {
+		t.Fatalf("unexpected capabilities: %+v", capabilities)
+	}
+}
+
+func TestEngineDetectCapabilitiesStaticFallback(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register test: %v", err)
+	}
+	engine := NewEngine(reg)
+	capabilities, err := engine.DetectCapabilities(ctx, AgentSpec{Type: "test", SupportsMultimodal: true})
+	if err != nil {
+		t.Fatalf("detect fallback: %v", err)
+	}
+	if capabilities.AgentType != "test" || !capabilities.ResidentSessions || capabilities.OneShotRuns || !capabilities.Multimodal {
+		t.Fatalf("unexpected fallback capabilities: %+v", capabilities)
+	}
+}

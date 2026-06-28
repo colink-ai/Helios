@@ -53,6 +53,29 @@ func NewEngine(registry *Registry, opts ...EngineOption) *Engine {
 	return e
 }
 
+// DetectCapabilities reports the capabilities of an agent runtime through its
+// registered adapter.
+func (e *Engine) DetectCapabilities(ctx context.Context, spec AgentSpec) (Capabilities, error) {
+	adapter, err := e.registry.Create(spec)
+	if err != nil {
+		return Capabilities{}, err
+	}
+	if detector, ok := adapter.(CapabilityDetector); ok {
+		capabilities, err := detector.DetectCapabilities(ctx, spec)
+		if err != nil {
+			return Capabilities{}, err
+		}
+		if capabilities.AgentType == "" {
+			capabilities.AgentType = spec.Type
+		}
+		if capabilities.AgentName == "" {
+			capabilities.AgentName = spec.Name
+		}
+		return capabilities, nil
+	}
+	return StaticCapabilities(spec, adapter), nil
+}
+
 // StartSession creates an adapter session and emits normalized events.
 func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*SessionHandle, error) {
 	adapter, err := e.registry.Create(req.Agent)
