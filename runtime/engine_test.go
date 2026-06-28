@@ -9,6 +9,67 @@ import (
 	"github.com/colink-ai/helios/contracts"
 )
 
+type nativeRunAdapter struct {
+	testAdapter
+	fail bool
+}
+
+func (a nativeRunAdapter) Run(_ context.Context, _ RunRequest, onChunk ChunkHandler) (*RunResult, error) {
+	if a.fail {
+		return nil, fmt.Errorf("native failed")
+	}
+	onChunk(contracts.Chunk{Type: contracts.ChunkText, Content: "native chunk"})
+	return &RunResult{Output: "native ok"}, nil
+}
+
+type failingPromptAdapter struct {
+	testAdapter
+}
+
+func (failingPromptAdapter) Prompt(context.Context, PromptRequest, ChunkHandler) (*RunResult, error) {
+	return nil, fmt.Errorf("prompt failed")
+}
+
+type stopFailAdapter struct {
+	testAdapter
+}
+
+func (stopFailAdapter) StopSession(context.Context, string) error {
+	return fmt.Errorf("stop failed")
+}
+
+type usagePromptAdapter struct {
+	testAdapter
+}
+
+func (usagePromptAdapter) Prompt(context.Context, PromptRequest, ChunkHandler) (*RunResult, error) {
+	return &RunResult{Output: "ok", Usage: &contracts.TokenUsage{InputTokens: 3, OutputTokens: 5}}, nil
+}
+
+type startFailAdapter struct {
+	testAdapter
+}
+
+func (startFailAdapter) StartSession(context.Context, SessionRequest) (*SessionHandle, error) {
+	return nil, fmt.Errorf("start failed")
+}
+
+type nilHandleAdapter struct {
+	testAdapter
+}
+
+func (nilHandleAdapter) StartSession(context.Context, SessionRequest) (*SessionHandle, error) {
+	return nil, nil
+}
+
+type diagnosticAdapter struct {
+	testAdapter
+}
+
+func (diagnosticAdapter) Diagnostics(context.Context, string) (SessionDiagnostics, error) {
+	return SessionDiagnostics{SessionID: "session-diag-provider", Status: SessionRunning, Metadata: map[string]any{"source": "provider"}}, nil
+}
+
 func TestEngineStartSessionEmitsAndStores(t *testing.T) {
 	ctx := context.Background()
 	reg := NewRegistry()
@@ -168,6 +229,152 @@ func TestEnginePromptAndStop(t *testing.T) {
 	}
 }
 
+func TestEnginePromptReportsUsage(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "usage",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return usagePromptAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	var events []contracts.RunEvent
+	engine := NewEngine(reg, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		events = append(events, event)
+		return nil
+	})))
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "usage-session", Agent: AgentSpec{Type: "usage"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, err := engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: "hello"}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if len(events) != 2 || events[1].Type != contracts.EventUsageReported || events[1].Usage.OutputTokens != 5 {
+		t.Fatalf("usage event not reported: %+v", events)
+	}
+}
+
+func TestEnginePromptFailure(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "fail-prompt",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return failingPromptAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "prompt-fail", Agent: AgentSpec{Type: "fail-prompt"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, err := engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: "hello"}); err == nil {
+		t.Fatalf("prompt should fail")
+	}
+}
+
+func TestEngineStartSessionFailures(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "start-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return startFailAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register start fail: %v", err)
+	}
+	if err := reg.Register(AdapterMeta{
+		Type: "nil-handle",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return nilHandleAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register nil handle: %v", err)
+	}
+	var events []contracts.RunEvent
+	engine := NewEngine(reg, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		events = append(events, event)
+		return nil
+	})))
+	if _, err := engine.StartSession(ctx, SessionRequest{RunID: "run-start-fail", Agent: AgentSpec{Type: "start-fail"}}); err == nil {
+		t.Fatalf("start failure should be returned")
+	}
+	if len(events) != 1 || events[0].Type != contracts.EventRunFailed || events[0].Error != "start failed" {
+		t.Fatalf("run failed event not emitted: %+v", events)
+	}
+	if _, err := engine.StartSession(ctx, SessionRequest{Agent: AgentSpec{Type: "nil-handle"}}); err == nil {
+		t.Fatalf("nil handle should fail")
+	}
+}
+
+func TestEngineRunNative(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "native",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return nativeRunAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	var events []contracts.RunEvent
+	engine := NewEngine(reg, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		events = append(events, event)
+		return nil
+	})))
+	result, err := engine.Run(ctx, RunRequest{RunID: "run-native", Agent: AgentSpec{Type: "native"}})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Output != "native ok" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(events) < 3 || events[1].Chunk.Content != "native chunk" {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+func TestEngineRunNativeFailure(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "native-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return nativeRunAdapter{fail: true}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	if _, err := engine.Run(ctx, RunRequest{Agent: AgentSpec{Type: "native-fail"}}); err == nil {
+		t.Fatalf("native run should fail")
+	}
+}
+
+func TestEngineRunStopFailure(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "stop-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return stopFailAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	if _, err := engine.Run(ctx, RunRequest{Agent: AgentSpec{Type: "stop-fail"}, Input: "hello"}); err == nil {
+		t.Fatalf("run should fail on stop")
+	}
+}
+
 type permissionAdapter struct {
 	testAdapter
 	decision PermissionDecision
@@ -322,6 +529,31 @@ func TestEngineDiagnosticsFallback(t *testing.T) {
 	}
 }
 
+func TestEngineDiagnosticsProvider(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "diag-provider",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return diagnosticAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "session-diag-provider", Agent: AgentSpec{Type: "diag-provider"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	diag, err := engine.Diagnostics(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if diag.Metadata["source"] != "provider" {
+		t.Fatalf("provider diagnostics not used: %+v", diag)
+	}
+}
+
 func TestEngineEmitChunkUsesSemanticEventTypes(t *testing.T) {
 	ctx := context.Background()
 	var events []contracts.RunEvent
@@ -382,6 +614,14 @@ func (detectingAdapter) DetectCapabilities(context.Context, AgentSpec) (Capabili
 	return Capabilities{Protocol: "test", NativeResume: true}, nil
 }
 
+type failingDetector struct {
+	testAdapter
+}
+
+func (failingDetector) DetectCapabilities(context.Context, AgentSpec) (Capabilities, error) {
+	return Capabilities{}, fmt.Errorf("detect failed")
+}
+
 func TestEngineDetectCapabilities(t *testing.T) {
 	ctx := context.Background()
 	reg := NewRegistry()
@@ -421,5 +661,59 @@ func TestEngineDetectCapabilitiesStaticFallback(t *testing.T) {
 	}
 	if capabilities.AgentType != "test" || !capabilities.ResidentSessions || capabilities.OneShotRuns || !capabilities.Multimodal {
 		t.Fatalf("unexpected fallback capabilities: %+v", capabilities)
+	}
+}
+
+func TestEngineDetectCapabilitiesFailure(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "detect-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return failingDetector{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	if _, err := engine.DetectCapabilities(ctx, AgentSpec{Type: "detect-fail"}); err == nil {
+		t.Fatalf("detect failure should be returned")
+	}
+}
+
+func TestEngineUnsupportedSessionExtensions(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "plain-session", Agent: AgentSpec{Type: "test"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := engine.SendPermissionResult(ctx, handle.ID, "p1", PermissionDecision{Allow: true}); err == nil {
+		t.Fatalf("plain adapter should not accept permission result")
+	}
+	if _, err := engine.PendingRequests(ctx, handle.ID); err == nil {
+		t.Fatalf("plain adapter should not inspect pending requests")
+	}
+	if err := engine.CancelPendingRequest(ctx, handle.ID, "p1", "test"); err == nil {
+		t.Fatalf("plain adapter should not cancel pending requests")
+	}
+	for _, fn := range []func() error{
+		func() error { return engine.SendPermissionResult(ctx, "missing", "p1", PermissionDecision{}) },
+		func() error { _, err := engine.PendingRequests(ctx, "missing"); return err },
+		func() error { return engine.CancelPendingRequest(ctx, "missing", "p1", "test") },
+		func() error { _, err := engine.Diagnostics(ctx, "missing"); return err },
+	} {
+		if err := fn(); err == nil {
+			t.Fatalf("missing session should fail")
+		}
 	}
 }

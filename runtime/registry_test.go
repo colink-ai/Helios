@@ -54,3 +54,24 @@ func TestRegistryCreateAndList(t *testing.T) {
 		t.Fatalf("unexpected types: %+v", types)
 	}
 }
+
+func TestRegistryValidationAndSorting(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{}); err == nil {
+		t.Fatalf("missing type should fail")
+	}
+	if err := reg.Register(AdapterMeta{Type: "bad"}); err == nil {
+		t.Fatalf("missing factory should fail")
+	}
+	for _, typ := range []string{"zeta", "alpha"} {
+		if err := reg.Register(AdapterMeta{Type: typ, Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		}}); err != nil {
+			t.Fatalf("register %s: %v", typ, err)
+		}
+	}
+	types := reg.Types()
+	if len(types) != 2 || types[0].Type != "alpha" || types[1].Type != "zeta" {
+		t.Fatalf("types not sorted: %+v", types)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -14,16 +15,23 @@ import (
 )
 
 func main() {
-	agentType := flag.String("agent", "hermes", "agent adapter type")
-	cliPath := flag.String("cli", "", "agent CLI path")
-	input := flag.String("input", "Say hello from Helios.", "probe prompt")
-	scenarios := flag.String("scenarios", "detect,one_shot,resident", "comma-separated scenarios")
-	timeout := flag.Duration("timeout", 2*time.Minute, "per-scenario timeout")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
+func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("helios-compat", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	agentType := flags.String("agent", "hermes", "agent adapter type")
+	cliPath := flags.String("cli", "", "agent CLI path")
+	input := flags.String("input", "Say hello from Helios.", "probe prompt")
+	scenarios := flags.String("scenarios", "detect,one_shot,resident", "comma-separated scenarios")
+	timeout := flags.Duration("timeout", 2*time.Minute, "per-scenario timeout")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
 	registry := helios.NewRegistry()
 	if err := all.Register(registry); err != nil {
-		exit(err)
+		return exit(stderr, err)
 	}
 	engine := helios.NewEngine(registry)
 	harness := helios.NewCompatibilityHarness(engine)
@@ -33,14 +41,15 @@ func main() {
 	}, checks(*scenarios, *input, *timeout))
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		exit(err)
+		return exit(stderr, err)
 	}
-	fmt.Println(string(data))
+	fmt.Fprintln(stdout, string(data))
 	for _, result := range report.Results {
 		if !result.Passed {
-			os.Exit(1)
+			return 1
 		}
 	}
+	return 0
 }
 
 func checks(value string, input string, timeout time.Duration) []helios.CompatibilityCheck {
@@ -56,7 +65,7 @@ func checks(value string, input string, timeout time.Duration) []helios.Compatib
 	return out
 }
 
-func exit(err error) {
-	fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
+func exit(w io.Writer, err error) int {
+	fmt.Fprintln(w, err)
+	return 1
 }

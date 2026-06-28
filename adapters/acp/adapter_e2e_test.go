@@ -330,6 +330,122 @@ func TestBaseAdapterDetectCapabilitiesE2E(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterCheckHealthE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := adapter.CheckHealth(ctx, helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]}); err != nil {
+		t.Fatalf("check health: %v", err)
+	}
+}
+
+func TestBaseAdapterConfigureModelE2E(t *testing.T) {
+	adapter := NewBaseAdapter(Config{
+		CLIPath:              os.Args[0],
+		StartupTimeout:       2 * time.Second,
+		PromptTimeout:        2 * time.Second,
+		ConfigureModelViaACP: true,
+		ModelRef: func(req helios.SessionRequest) string {
+			if req.Agent.DefaultModel != "" {
+				return req.Agent.DefaultModel + "-from-ref"
+			}
+			return ""
+		},
+		BuildArgs: func(helios.SessionRequest) []string {
+			return []string{"-test.run=TestFakeACPAgentCLI", "--"}
+		},
+		BuildEnv: func(helios.SessionRequest) []string {
+			return []string{"HELIOS_FAKE_ACP=1"}
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-model",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0], DefaultModel: "qwen-test"},
+	})
+	if err != nil {
+		t.Fatalf("start session with model config: %v", err)
+	}
+	if handle.AgentSessionID != "fake-session-new" {
+		t.Fatalf("agent session id = %q", handle.AgentSessionID)
+	}
+	_ = adapter.StopSession(ctx, handle.ID)
+}
+
+func TestBaseAdapterStartSessionValidation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	missingCLI := NewBaseAdapter(Config{})
+	if _, err := missingCLI.StartSession(ctx, helios.SessionRequest{SessionID: "missing-cli"}); err == nil {
+		t.Fatalf("missing cli path should fail")
+	}
+
+	adapter := newFakeAdapter()
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "duplicate-session",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+	if _, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "duplicate-session",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	}); err == nil {
+		t.Fatalf("duplicate session should fail")
+	}
+}
+
+func TestBaseAdapterConfigHelpers(t *testing.T) {
+	adapter := NewBaseAdapter(Config{
+		CLIPath:        "configured-cli",
+		StartupTimeout: time.Second,
+		PromptTimeout:  2 * time.Second,
+		BuildArgs: func(req helios.SessionRequest) []string {
+			return []string{"--session", req.SessionID}
+		},
+		BuildEnv: func(helios.SessionRequest) []string {
+			return []string{"EXTRA_ENV=1"}
+		},
+	})
+	req := helios.SessionRequest{
+		SessionID: "session-1",
+		Agent: helios.AgentSpec{
+			CLIPath: "spec-cli",
+			Env:     map[string]string{"AGENT_ENV": "2"},
+		},
+	}
+	if got := adapter.cliPath(req.Agent); got != "configured-cli" {
+		t.Fatalf("cliPath = %q", got)
+	}
+	if got := strings.Join(adapter.buildArgs(req), " "); got != "--session session-1" {
+		t.Fatalf("buildArgs = %q", got)
+	}
+	env := strings.Join(adapter.buildEnv(req), "\n")
+	if !strings.Contains(env, "AGENT_ENV=2") || !strings.Contains(env, "EXTRA_ENV=1") {
+		t.Fatalf("buildEnv missing entries: %s", env)
+	}
+	if adapter.startupTimeout() != time.Second || adapter.promptTimeout() != 2*time.Second {
+		t.Fatalf("custom timeouts not used")
+	}
+
+	defaults := NewBaseAdapter(Config{})
+	if got := defaults.cliPath(helios.AgentSpec{CLIPath: "spec-cli"}); got != "spec-cli" {
+		t.Fatalf("default cliPath = %q", got)
+	}
+	if args := defaults.buildArgs(helios.SessionRequest{}); args != nil {
+		t.Fatalf("default args = %+v", args)
+	}
+	if defaults.startupTimeout() != defaultStartupTimeout || defaults.promptTimeout() != defaultPromptTimeout {
+		t.Fatalf("default timeouts not used")
+	}
+}
+
 func newFakeAdapter() *BaseAdapter {
 	return NewBaseAdapter(Config{
 		CLIPath:        os.Args[0],
@@ -431,6 +547,8 @@ func runFakeACPAgent() {
 				continue
 			}
 			writeFakeResult(writer, req.ID, map[string]any{"sessionId": "loaded-session"})
+		case "session/set_config_option":
+			writeFakeResult(writer, req.ID, map[string]any{"ok": true})
 		case "session/prompt":
 			var params PromptParams
 			_ = json.Unmarshal(req.Params, &params)

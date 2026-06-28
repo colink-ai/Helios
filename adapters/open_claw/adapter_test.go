@@ -21,6 +21,47 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+func TestOptionsAndNewAdapter(t *testing.T) {
+	cfg := config{}
+	WithCLIPath("claw")(&cfg)
+	WithGatewayURL("ws://gateway")(&cfg)
+	WithGatewayPort(1234)(&cfg)
+	WithToken("token")(&cfg)
+	WithGatewayLauncher(testLauncher{})(&cfg)
+	if cfg.cliPath != "claw" || cfg.gatewayURL != "ws://gateway" || cfg.gatewayPort != 1234 || cfg.token != "token" || cfg.launcher == nil {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if adapter := NewAdapter(WithCLIPath("claw"), WithGatewayPort(1234)); adapter == nil {
+		t.Fatalf("adapter is nil")
+	}
+}
+
+func TestBuildArgsDefaults(t *testing.T) {
+	args := buildArgs(config{gatewayPort: 26888}, helios.SessionRequest{})
+	got := strings.Join(args, " ")
+	if !strings.Contains(got, "ws://127.0.0.1:26888") || !strings.Contains(got, "agent:main:session-") {
+		t.Fatalf("unexpected args: %v", args)
+	}
+	env := strings.Join(buildEnv(config{gatewayPort: 0}, helios.SessionRequest{}), "\n")
+	if env != "" {
+		t.Fatalf("unexpected env: %s", env)
+	}
+}
+
+func TestRegisterSpecCLIOverride(t *testing.T) {
+	reg := helios.NewRegistry()
+	if err := Register(reg, WithCLIPath("default")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	adapter, err := reg.Create(helios.AgentSpec{Type: Type, CLIPath: "from-spec"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if adapter == nil {
+		t.Fatalf("adapter is nil")
+	}
+}
+
 type testLauncher struct{}
 
 func (testLauncher) GatewayURL(helios.SessionRequest) string { return "ws://gateway.test:9999" }

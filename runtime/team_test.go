@@ -113,3 +113,46 @@ func TestTeamRunnerSkipsDisabledNode(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestShouldSkipNodeConditions(t *testing.T) {
+	cases := []struct {
+		name string
+		meta map[string]any
+		want bool
+	}{
+		{name: "nil", want: false},
+		{name: "never", meta: map[string]any{"condition": "never"}, want: true},
+		{name: "disabled", meta: map[string]any{"condition": "disabled"}, want: true},
+		{name: "enabled", meta: map[string]any{"condition": "enabled"}, want: false},
+		{name: "bool false", meta: map[string]any{"condition": false}, want: true},
+		{name: "bool true", meta: map[string]any{"condition": true}, want: false},
+		{name: "unknown", meta: map[string]any{"condition": 1}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldSkipNode(contracts.WorkNode{Metadata: tc.meta}); got != tc.want {
+				t.Fatalf("shouldSkipNode = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOrderNodesByEdgesFallsBackOnCycleAndUnknownEdges(t *testing.T) {
+	nodes := []contracts.WorkNode{
+		{ID: "a", Type: "agent", AgentID: "agent-a"},
+		{ID: "b", Type: "agent", AgentID: "agent-b"},
+	}
+	cyclic := orderNodesByEdges(nodes, []contracts.WorkEdge{{From: "a", To: "b"}, {From: "b", To: "a"}})
+	if cyclic[0].ID != "a" || cyclic[1].ID != "b" {
+		t.Fatalf("cycle should preserve input order: %+v", cyclic)
+	}
+	withUnknown := orderNodesByEdges(nodes, []contracts.WorkEdge{{From: "missing", To: "b"}, {From: "a", To: "b"}})
+	if withUnknown[0].ID != "a" || withUnknown[1].ID != "b" {
+		t.Fatalf("unknown edge should be ignored: %+v", withUnknown)
+	}
+	sortable := []string{"b", "a"}
+	sortNodeIDs(sortable, map[string]int{"a": 0, "b": 1})
+	if sortable[0] != "a" || sortable[1] != "b" {
+		t.Fatalf("sortNodeIDs = %+v", sortable)
+	}
+}

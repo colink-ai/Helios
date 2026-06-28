@@ -33,6 +33,16 @@ func TestBuildConfigContent(t *testing.T) {
 	}
 }
 
+func TestBuildConfigContentEmptyAndAPIOnly(t *testing.T) {
+	if got := buildConfigContent(helios.AgentSpec{}); got != "" {
+		t.Fatalf("empty spec content = %q", got)
+	}
+	content := buildConfigContent(helios.AgentSpec{APIURL: "https://model.test/v1"})
+	if content == "" || !strings.Contains(content, "https://model.test/v1") {
+		t.Fatalf("unexpected API-only content: %s", content)
+	}
+}
+
 func TestBuildEnv(t *testing.T) {
 	workDir := t.TempDir()
 	env := strings.Join(buildEnv(helios.SessionRequest{
@@ -46,12 +56,56 @@ func TestBuildEnv(t *testing.T) {
 	}
 }
 
+func TestConfigDirPrecedence(t *testing.T) {
+	if got := configDir(helios.SessionRequest{RuntimeHome: "/runtime", Agent: helios.AgentSpec{RuntimeHome: "/agent"}}); got != "/runtime/opencode" {
+		t.Fatalf("runtime home dir = %q", got)
+	}
+	if got := configDir(helios.SessionRequest{Agent: helios.AgentSpec{RuntimeHome: "/agent"}}); got != "/agent/opencode" {
+		t.Fatalf("agent runtime home dir = %q", got)
+	}
+	if got := configDir(helios.SessionRequest{WorkDir: "/work"}); got != "/work/.opencode" {
+		t.Fatalf("work dir = %q", got)
+	}
+	if got := configDir(helios.SessionRequest{Agent: helios.AgentSpec{WorkDir: "/agent-work"}}); got != "/agent-work/.opencode" {
+		t.Fatalf("agent work dir = %q", got)
+	}
+	if got := configDir(helios.SessionRequest{}); got != "" {
+		t.Fatalf("empty dir = %q", got)
+	}
+}
+
+func TestOptionsAndNewAdapter(t *testing.T) {
+	cfg := config{}
+	WithCLIPath("custom")(&cfg)
+	WithHTTPPort(7777)(&cfg)
+	if cfg.cliPath != "custom" || cfg.port != 7777 {
+		t.Fatalf("unexpected config: %+v", cfg)
+	}
+	if adapter := NewAdapter(WithCLIPath("custom"), WithHTTPPort(7777)); adapter == nil {
+		t.Fatalf("adapter is nil")
+	}
+}
+
 func TestRegister(t *testing.T) {
 	reg := helios.NewRegistry()
 	if err := Register(reg); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	adapter, err := reg.Create(helios.AgentSpec{Type: Type})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if adapter == nil {
+		t.Fatalf("adapter is nil")
+	}
+}
+
+func TestRegisterSpecCLIOverride(t *testing.T) {
+	reg := helios.NewRegistry()
+	if err := Register(reg, WithCLIPath("default")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	adapter, err := reg.Create(helios.AgentSpec{Type: Type, CLIPath: "from-spec"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

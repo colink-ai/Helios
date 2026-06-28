@@ -25,3 +25,13 @@ func TestRegister(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterDuplicateFails(t *testing.T) {
+	reg := helios.NewRegistry()
+	if err := Register(reg); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	if err := Register(reg); err == nil {
+		t.Fatalf("duplicate register should fail")
+	}
+}

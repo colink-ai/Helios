@@ -3,6 +3,8 @@ package acp
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/colink-ai/helios/contracts"
 )
 
 func TestParseElicitationQuestions(t *testing.T) {
@@ -52,5 +54,32 @@ func TestBuildElicitationContent(t *testing.T) {
 	content = buildElicitationContent(`{"question_0":"B","question_1":["C"]}`, questions)
 	if content["question_0"] != "B" {
 		t.Fatalf("json content = %+v", content)
+	}
+}
+
+func TestParseElicitationInvalidAndEmpty(t *testing.T) {
+	if _, err := parseElicitation(json.RawMessage(`{`)); err == nil {
+		t.Fatalf("invalid elicitation should fail")
+	}
+	if questions := parseElicitationQuestions(nil, "fallback"); questions != nil {
+		t.Fatalf("nil props should not produce questions: %+v", questions)
+	}
+	questions := parseElicitationQuestions(map[string]json.RawMessage{
+		"other":      json.RawMessage(`{"type":"string"}`),
+		"question_0": json.RawMessage(`{`),
+	}, "fallback")
+	if len(questions) != 0 {
+		t.Fatalf("invalid question fields should be skipped: %+v", questions)
+	}
+}
+
+func TestBuildElicitationContentFallbackKey(t *testing.T) {
+	content := buildElicitationContent("plain", nil)
+	if content["question_0"] != "plain" {
+		t.Fatalf("fallback content = %+v", content)
+	}
+	content = buildElicitationContent(`{"broken"`, []contracts.QuestionItem{{ID: "question_custom"}})
+	if content["question_custom"] != `{"broken"` {
+		t.Fatalf("invalid json should be treated as answer: %+v", content)
 	}
 }

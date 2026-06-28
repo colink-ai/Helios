@@ -56,12 +56,90 @@ func TestWriteConfigAndEnv(t *testing.T) {
 	}
 }
 
+func TestWriteConfigSkipsUnchangedFile(t *testing.T) {
+	home := t.TempDir()
+	spec := helios.AgentSpec{DefaultModel: "glm-test"}
+	if err := writeConfig(home, spec, nil); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		t.Fatalf("stat config: %v", err)
+	}
+	if err := writeConfig(home, spec, nil); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+	infoAfter, err := os.Stat(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		t.Fatalf("stat config after: %v", err)
+	}
+	if !infoAfter.ModTime().Equal(info.ModTime()) {
+		t.Fatalf("unchanged config should not be rewritten")
+	}
+}
+
+func TestRuntimeHomePrecedence(t *testing.T) {
+	req := helios.SessionRequest{
+		RuntimeHome: "request-home",
+		Agent:       helios.AgentSpec{RuntimeHome: "agent-home"},
+	}
+	if got := runtimeHome(req); got != "request-home" {
+		t.Fatalf("runtimeHome = %q", got)
+	}
+	req.RuntimeHome = ""
+	if got := runtimeHome(req); got != "agent-home" {
+		t.Fatalf("runtimeHome agent fallback = %q", got)
+	}
+	req.Agent.RuntimeHome = ""
+	if got := runtimeHome(req); got != "" {
+		t.Fatalf("runtimeHome empty = %q", got)
+	}
+}
+
+func TestOptionsAndHelpers(t *testing.T) {
+	if NewAdapter(WithCLIPath("custom-hermes")) == nil {
+		t.Fatalf("adapter is nil")
+	}
+	if got := abs(""); got != "" {
+		t.Fatalf("abs empty = %q", got)
+	}
+	if got := abs("relative-home"); !filepath.IsAbs(got) {
+		t.Fatalf("abs relative = %q", got)
+	}
+	if got := quoteKey(""); got != `""` {
+		t.Fatalf("quoteKey empty = %q", got)
+	}
+	if got := quoteKey("simple-key"); got != "simple-key" {
+		t.Fatalf("quoteKey simple = %q", got)
+	}
+	if got := quoteKey("needs space"); got != `"needs space"` {
+		t.Fatalf("quoteKey space = %q", got)
+	}
+	if got := quote("line\nquote\""); got != `"line\nquote\""` {
+		t.Fatalf("quote = %q", got)
+	}
+}
+
 func TestRegister(t *testing.T) {
 	reg := helios.NewRegistry()
 	if err := Register(reg); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	adapter, err := reg.Create(helios.AgentSpec{Type: Type})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if adapter == nil {
+		t.Fatalf("adapter is nil")
+	}
+}
+
+func TestRegisterSpecCLIOverride(t *testing.T) {
+	reg := helios.NewRegistry()
+	if err := Register(reg, WithCLIPath("default-hermes")); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	adapter, err := reg.Create(helios.AgentSpec{Type: Type, CLIPath: "spec-hermes"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

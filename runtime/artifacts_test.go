@@ -104,6 +104,43 @@ func TestFileArtifactStoreSaveReaderCanceled(t *testing.T) {
 	}
 }
 
+func TestFileArtifactStoreRequiresRoot(t *testing.T) {
+	store := NewFileArtifactStore("")
+	if _, err := store.SaveArtifact(context.Background(), contracts.Artifact{Name: "x.txt", Content: "x"}); err == nil {
+		t.Fatalf("save without root should fail")
+	}
+	if _, err := store.ReadArtifact(context.Background(), contracts.Artifact{Name: "x.txt"}); err == nil {
+		t.Fatalf("read without root should fail")
+	}
+}
+
+func TestFileArtifactStoreReadByMetadata(t *testing.T) {
+	store := NewFileArtifactStore(t.TempDir())
+	saved, err := store.SaveArtifact(context.Background(), contracts.Artifact{
+		SessionID: "session-1",
+		Type:      contracts.ArtifactOther,
+		Name:      "note.txt",
+		Content:   "hello",
+	})
+	if err != nil {
+		t.Fatalf("save artifact: %v", err)
+	}
+	saved.Path = ""
+	data, err := store.ReadArtifact(context.Background(), saved)
+	if err != nil {
+		t.Fatalf("read by metadata: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("data = %q", data)
+	}
+}
+
+func TestSafeArtifactPathRequiresNameOrID(t *testing.T) {
+	if _, err := safeArtifactPath(contracts.Artifact{Type: contracts.ArtifactOther}); err == nil {
+		t.Fatalf("empty artifact should fail")
+	}
+}
+
 func TestContextReaderStopsAfterCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	reader := contextReader{ctx: ctx, reader: strings.NewReader("hello")}

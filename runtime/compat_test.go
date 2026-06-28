@@ -33,11 +33,72 @@ func TestCompatibilityHarnessRun(t *testing.T) {
 	}
 }
 
+func TestCompatibilityHarnessResumeAndElicitationScenarios(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "chunking",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return chunkingAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	harness := NewCompatibilityHarness(NewEngine(reg))
+	report := harness.Run(context.Background(), AgentSpec{Type: "chunking"}, []CompatibilityCheck{
+		{Scenario: CompatResume, ResumeSessionID: "agent-session-1", Input: "resume"},
+		{Scenario: CompatElicitation, Input: "ask"},
+		{Scenario: CompatCapabilities},
+	})
+	if len(report.Results) != 3 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	for _, result := range report.Results {
+		if !result.Passed {
+			t.Fatalf("scenario %s failed: %+v", result.Scenario, result)
+		}
+	}
+	if report.Results[2].Capabilities == nil {
+		t.Fatalf("capabilities scenario should attach capabilities: %+v", report.Results[2])
+	}
+}
+
 func TestCompatibilityHarnessUnknownScenario(t *testing.T) {
 	harness := NewCompatibilityHarness(NewEngine(NewRegistry()))
 	report := harness.Run(context.Background(), AgentSpec{Type: "missing"}, []CompatibilityCheck{{Scenario: "weird"}})
 	if len(report.Results) != 1 || report.Results[0].Passed || report.Results[0].Error == "" {
 		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
+func TestCompatibilityHarnessReportsFailures(t *testing.T) {
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "prompt-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return failingPromptAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register prompt fail: %v", err)
+	}
+	if err := reg.Register(AdapterMeta{
+		Type: "detect-fail",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return failingDetector{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register detect fail: %v", err)
+	}
+	harness := NewCompatibilityHarness(NewEngine(reg))
+	report := harness.Run(context.Background(), AgentSpec{Type: "prompt-fail"}, []CompatibilityCheck{
+		{Scenario: CompatOneShot, Input: "hello"},
+		{Scenario: CompatResident, Input: "hello"},
+	})
+	if len(report.Results) != 2 || report.Results[0].Passed || report.Results[1].Passed {
+		t.Fatalf("prompt failures should be reported: %+v", report)
+	}
+	detectReport := harness.Run(context.Background(), AgentSpec{Type: "detect-fail"}, []CompatibilityCheck{{Scenario: CompatDetect}})
+	if len(detectReport.Results) != 1 || detectReport.Results[0].Passed || detectReport.Results[0].Error == "" {
+		t.Fatalf("detect failure should be reported: %+v", detectReport)
 	}
 }
 

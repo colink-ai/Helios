@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/colink-ai/helios/contracts"
@@ -108,6 +109,52 @@ func TestParseACPQuestionTool(t *testing.T) {
 	}
 }
 
+func TestParseACPQuestionToolInitialCallAndMetaName(t *testing.T) {
+	params := json.RawMessage(`{
+		"sessionId":"s1",
+		"update":{
+			"sessionUpdate":"tool_call",
+			"toolCallId":"question-2",
+			"_meta":{"claudeCode":{"toolName":"AskUserQuestion"}},
+			"rawInput":{
+				"questions":[{
+					"id":"q1",
+					"header":"Choice",
+					"text":"Pick one",
+					"multiSelect":true,
+					"options":[{"label":"A","preview":"alpha"}]
+				}]
+			}
+		}
+	}`)
+	chunks, err := ParseSessionUpdate(params)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkQuestion || chunks[0].ToolID != "question-2" {
+		t.Fatalf("unexpected chunks: %+v", chunks)
+	}
+	if len(chunks[0].Questions) != 1 || chunks[0].Questions[0].Question != "Pick one" || chunks[0].Questions[0].Options[0].Preview != "alpha" {
+		t.Fatalf("unexpected questions: %+v", chunks[0].Questions)
+	}
+
+	toolChunks, err := ParseSessionUpdate(json.RawMessage(`{
+		"sessionId":"s1",
+		"update":{
+			"sessionUpdate":"tool_input_delta",
+			"toolCallId":"tool-1",
+			"_meta":{"claudeCode":{"toolName":"Edit"}},
+			"delta":"{\"path\":\"a\"}"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("parse meta tool: %v", err)
+	}
+	if len(toolChunks) != 1 || toolChunks[0].ToolName != "Edit" {
+		t.Fatalf("unexpected meta tool chunks: %+v", toolChunks)
+	}
+}
+
 func TestParseACPUsageAndPlan(t *testing.T) {
 	usage := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"usage_update","used":12,"size":100}}`)
 	chunks, err := ParseSessionUpdate(usage)
@@ -125,6 +172,42 @@ func TestParseACPUsageAndPlan(t *testing.T) {
 	}
 	if len(chunks) != 1 || len(chunks[0].Plan) != 1 || chunks[0].Plan[0].Content != "write tests" {
 		t.Fatalf("unexpected plan chunks: %+v", chunks)
+	}
+}
+
+func TestParseACPFailedToolResultAndFallbacks(t *testing.T) {
+	chunks, err := ParseSessionUpdate(json.RawMessage(`{
+		"sessionId":"s1",
+		"update":{
+			"sessionUpdate":"tool_call_update",
+			"toolCallId":"tool-1",
+			"status":"failed",
+			"content":[{"type":"text","text":"bad input"}]
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("parse failed tool result: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkToolResult || !chunks[0].IsError || chunks[0].Content != "bad input" {
+		t.Fatalf("unexpected failed tool chunks: %+v", chunks)
+	}
+
+	message, err := ParseSessionUpdate(json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","message":"fallback text"}}`))
+	if err != nil {
+		t.Fatalf("parse content fallback: %v", err)
+	}
+	if len(message) != 1 || message[0].Content != "fallback text" {
+		t.Fatalf("unexpected message fallback: %+v", message)
+	}
+
+	handoff := parseHandoff(map[string]any{
+		"sessionUpdate": "handoff",
+		"targetType":    "agent",
+		"message":       "delegate",
+		"input":         map[string]any{"task": "review"},
+	}, json.RawMessage(`{}`))
+	if handoff[0].Handoff.Target.Type != "agent" || handoff[0].Handoff.Payload["task"] != "review" {
+		t.Fatalf("unexpected handoff fallback: %+v", handoff)
 	}
 }
 
@@ -175,4 +258,93 @@ func TestParseACPToolInputDelta(t *testing.T) {
 	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkInputJSONDelta || chunks[0].ToolID != "t1" || chunks[0].PartialJSON != "{\"path\"" {
 		t.Fatalf("unexpected delta chunks: %+v", chunks)
 	}
+}
+
+func TestParseNestedAndLooseUpdates(t *testing.T) {
+	nested := json.RawMessage(`{"params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"nested"}}}}`)
+	chunks, err := ParseSessionUpdate(nested)
+	if err != nil {
+		t.Fatalf("parse nested: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "nested" {
+		t.Fatalf("unexpected nested chunks: %+v", chunks)
+	}
+	status := json.RawMessage(`{"sessionId":"s1","update":{"message":"working","status":"running"}}`)
+	chunks, err = ParseSessionUpdate(status)
+	if err != nil {
+		t.Fatalf("parse status: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkStatus {
+		t.Fatalf("unexpected status chunks: %+v", chunks)
+	}
+	tool := json.RawMessage(`{"sessionId":"s1","update":{"title":"edit","toolId":"t1","input":{"path":"x"}}}`)
+	chunks, err = ParseSessionUpdate(tool)
+	if err != nil {
+		t.Fatalf("parse loose tool: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkToolUse || chunks[0].ToolName != "edit" {
+		t.Fatalf("unexpected loose tool chunks: %+v", chunks)
+	}
+}
+
+func TestParseArtifactTypesAndFallbacks(t *testing.T) {
+	for typ, want := range map[string]contracts.ArtifactType{
+		"document": contracts.ArtifactDocument,
+		"review":   contracts.ArtifactReview,
+		"test":     contracts.ArtifactTest,
+		"config":   contracts.ArtifactConfig,
+		"data":     contracts.ArtifactData,
+		"weird":    contracts.ArtifactOther,
+	} {
+		if got := artifactType(typ); got != want {
+			t.Fatalf("artifactType(%q)=%q want %q", typ, got, want)
+		}
+	}
+	chunks := parseArtifact(map[string]any{"sessionUpdate": "artifact", "artifactType": "weird", "id": "a1"}, json.RawMessage(`{}`))
+	if chunks[0].Artifact.Name != "a1" || chunks[0].Artifact.Type != contracts.ArtifactOther {
+		t.Fatalf("unexpected artifact fallback: %+v", chunks[0].Artifact)
+	}
+	errChunks := parseError(map[string]any{"sessionUpdate": "error"}, json.RawMessage(`{}`))
+	if errChunks[0].Content == "" || !errChunks[0].IsError {
+		t.Fatalf("unexpected error fallback: %+v", errChunks)
+	}
+}
+
+func TestNumericAndMetadataHelpers(t *testing.T) {
+	values := map[string]any{
+		"i":        json.Number("42"),
+		"f":        json.Number("1.5"),
+		"b":        true,
+		"plainInt": 7,
+		"int64":    int64(9),
+		"float":    2.5,
+		"stringer": stringerValue("from-stringer"),
+	}
+	if int64Value(values, "i") != 42 || floatValue(values, "f") != 1.5 || !boolValue(values, "b") {
+		t.Fatalf("unexpected numeric values")
+	}
+	if int64Value(values, "plainInt") != 7 || int64Value(values, "int64") != 9 {
+		t.Fatalf("unexpected int values")
+	}
+	if floatValue(values, "plainInt") != 7 || floatValue(values, "int64") != 9 || floatValue(values, "float") != 2.5 {
+		t.Fatalf("unexpected float values")
+	}
+	if stringValue(values, "stringer") != "from-stringer" {
+		t.Fatalf("unexpected stringer value")
+	}
+	if len(metadata(map[string]any{}, "missing")) != 0 {
+		t.Fatalf("empty metadata should be nil")
+	}
+	if _, err := unwrapSessionUpdate(json.RawMessage(`[]`)); err == nil {
+		t.Fatalf("non-object unwrap should fail")
+	}
+	if _, err := object(json.RawMessage(`[]`)); err == nil {
+		t.Fatalf("non-object should fail")
+	}
+}
+
+type stringerValue string
+
+func (s stringerValue) String() string {
+	return fmt.Sprintf("%s", string(s))
 }

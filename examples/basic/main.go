@@ -10,13 +10,21 @@ import (
 )
 
 func main() {
+	engine, err := newEngine()
+	if err != nil {
+		panic(err)
+	}
+	_ = engine
+}
+
+func newEngine() (*helios.Engine, error) {
 	registry := helios.NewRegistry()
 	if err := all.Register(registry); err != nil {
-		panic(err)
+		return nil, err
 	}
 	engine := helios.NewEngine(registry, helios.WithEventSink(helios.EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
 		fmt.Println(event.Type)
 		return nil
 	})))
-	_ = engine
+	return engine, nil
 }
