@@ -309,6 +309,9 @@ func eventTypeForChunk(chunk contracts.Chunk) contracts.EventType {
 
 func (e *Engine) emit(ctx context.Context, event contracts.RunEvent) error {
 	event.Sequence = atomic.AddInt64(&e.seq, 1)
+	if event.SchemaVersion == "" {
+		event.SchemaVersion = contracts.SemanticSchemaVersion
+	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}

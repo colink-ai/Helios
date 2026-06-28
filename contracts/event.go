@@ -27,23 +27,24 @@ const (
 
 // RunEvent is the stable event envelope applications can persist or forward.
 type RunEvent struct {
-	ID        string         `json:"id,omitempty"`
-	Type      EventType      `json:"type"`
-	RunID     string         `json:"runId,omitempty"`
-	SessionID string         `json:"sessionId,omitempty"`
-	AgentID   string         `json:"agentId,omitempty"`
-	TeamID    string         `json:"teamId,omitempty"`
-	Sequence  int64          `json:"sequence,omitempty"`
-	Timestamp time.Time      `json:"timestamp"`
-	Chunk     *Chunk         `json:"chunk,omitempty"`
-	Artifact  *Artifact      `json:"artifact,omitempty"`
-	Handoff   *Handoff       `json:"handoff,omitempty"`
-	Usage     *TokenUsage    `json:"usage,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	ID            string         `json:"id,omitempty"`
+	SchemaVersion string         `json:"schemaVersion,omitempty"`
+	Type          EventType      `json:"type"`
+	RunID         string         `json:"runId,omitempty"`
+	SessionID     string         `json:"sessionId,omitempty"`
+	AgentID       string         `json:"agentId,omitempty"`
+	TeamID        string         `json:"teamId,omitempty"`
+	Sequence      int64          `json:"sequence,omitempty"`
+	Timestamp     time.Time      `json:"timestamp"`
+	Chunk         *Chunk         `json:"chunk,omitempty"`
+	Artifact      *Artifact      `json:"artifact,omitempty"`
+	Handoff       *Handoff       `json:"handoff,omitempty"`
+	Usage         *TokenUsage    `json:"usage,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
 }
 
 // NewEvent creates a timestamped runtime event.
 func NewEvent(eventType EventType) RunEvent {
-	return RunEvent{Type: eventType, Timestamp: time.Now().UTC()}
+	return RunEvent{SchemaVersion: SemanticSchemaVersion, Type: eventType, Timestamp: time.Now().UTC()}
 }

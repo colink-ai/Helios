@@ -203,6 +203,31 @@ diag, err := engine.Diagnostics(ctx, sessionID)
 ACP diagnostics include the underlying agent session id, status, captured
 stderr, resume strategy, and transport background errors when available.
 
+## Versioning And Compatibility
+
+Helios versions the application-facing semantic layer separately from individual
+agent protocol details:
+
+- Runtime events carry `schemaVersion`, currently `helios.semantic.v1`.
+- Built-in adapter compatibility expectations are documented as
+  `helios.adapters.v1`.
+- Normalized fields are intended to evolve conservatively. New fields and event
+  types may be added, but existing meanings should not change inside the same
+  semantic version.
+- Raw protocol payloads remain available through `Chunk.Raw`, `Chunk.Metadata`,
+  and capability `Raw` fields so applications can adopt newly released agent
+  behavior before Helios promotes it into stable semantic fields.
+- Adapter packages are allowed to move faster than the core contracts because
+  foundation agents and ACP-compatible CLIs evolve quickly.
+
+For host applications, the recommended persistence key is:
+
+```text
+event.schemaVersion + event.type + event.sequence
+```
+
+Store raw payloads when auditability or forward compatibility matters.
+
 ## Built-in Adapter Status
 
 | Adapter | Runtime mode | Notes |

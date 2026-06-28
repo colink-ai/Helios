@@ -40,6 +40,9 @@ func TestEngineStartSessionEmitsAndStores(t *testing.T) {
 	if len(events) != 1 || events[0].Type != contracts.EventSessionStarted || events[0].Sequence != 1 {
 		t.Fatalf("unexpected events: %+v", events)
 	}
+	if events[0].SchemaVersion != contracts.SemanticSchemaVersion {
+		t.Fatalf("schema version = %q", events[0].SchemaVersion)
+	}
 	snapshot, err := store.LoadSession(ctx, "session-1")
 	if err != nil {
 		t.Fatalf("load snapshot: %v", err)
