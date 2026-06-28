@@ -15,6 +15,9 @@ const (
 	ChunkInputJSONDelta ChunkType = "input_json_delta"
 	ChunkUsage          ChunkType = "usage"
 	ChunkQuestion       ChunkType = "question"
+	ChunkPermission     ChunkType = "permission"
+	ChunkArtifact       ChunkType = "artifact"
+	ChunkHandoff        ChunkType = "handoff"
 	ChunkDone           ChunkType = "done"
 )
 
@@ -74,21 +77,35 @@ type PlanEntry struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// PermissionRequest asks the host application to approve or deny a runtime
+// action, such as using a tool, reading a path, or running a command.
+type PermissionRequest struct {
+	ID       string           `json:"id,omitempty"`
+	Action   string           `json:"action,omitempty"`
+	Resource string           `json:"resource,omitempty"`
+	Reason   string           `json:"reason,omitempty"`
+	Options  []QuestionOption `json:"options,omitempty"`
+	Metadata map[string]any   `json:"metadata,omitempty"`
+}
+
 // Chunk is the normalized streaming unit emitted by adapters.
 type Chunk struct {
-	Type             ChunkType       `json:"type"`
-	Content          string          `json:"content,omitempty"`
-	ToolName         string          `json:"toolName,omitempty"`
-	ToolID           string          `json:"toolId,omitempty"`
-	ToolInput        map[string]any  `json:"toolInput,omitempty"`
-	ToolIndex        int             `json:"toolIndex,omitempty"`
-	PartialJSON      string          `json:"partialJson,omitempty"`
-	IsError          bool            `json:"isError,omitempty"`
-	Usage            *TokenUsage     `json:"usage,omitempty"`
-	Done             bool            `json:"done,omitempty"`
-	Questions        []QuestionItem  `json:"questions,omitempty"`
-	ToolResultBlocks []ContentBlock  `json:"toolResultBlocks,omitempty"`
-	Plan             []PlanEntry     `json:"plan,omitempty"`
-	Raw              json.RawMessage `json:"raw,omitempty"`
-	Metadata         map[string]any  `json:"metadata,omitempty"`
+	Type             ChunkType          `json:"type"`
+	Content          string             `json:"content,omitempty"`
+	ToolName         string             `json:"toolName,omitempty"`
+	ToolID           string             `json:"toolId,omitempty"`
+	ToolInput        map[string]any     `json:"toolInput,omitempty"`
+	ToolIndex        int                `json:"toolIndex,omitempty"`
+	PartialJSON      string             `json:"partialJson,omitempty"`
+	IsError          bool               `json:"isError,omitempty"`
+	Usage            *TokenUsage        `json:"usage,omitempty"`
+	Done             bool               `json:"done,omitempty"`
+	Questions        []QuestionItem     `json:"questions,omitempty"`
+	ToolResultBlocks []ContentBlock     `json:"toolResultBlocks,omitempty"`
+	Plan             []PlanEntry        `json:"plan,omitempty"`
+	Artifact         *Artifact          `json:"artifact,omitempty"`
+	Handoff          *Handoff           `json:"handoff,omitempty"`
+	Permission       *PermissionRequest `json:"permission,omitempty"`
+	Raw              json.RawMessage    `json:"raw,omitempty"`
+	Metadata         map[string]any     `json:"metadata,omitempty"`
 }

@@ -17,10 +17,12 @@ const (
 	EventToolCompleted   EventType = "tool.completed"
 	EventToolFailed      EventType = "tool.failed"
 	EventQuestionAsked   EventType = "question.requested"
+	EventPermissionAsked EventType = "permission.requested"
 	EventPlanUpdated     EventType = "plan.updated"
 	EventArtifactCreated EventType = "artifact.created"
 	EventHandoffCreated  EventType = "handoff.created"
 	EventUsageReported   EventType = "usage.reported"
+	EventRuntimeError    EventType = "runtime.error"
 )
 
 // RunEvent is the stable event envelope applications can persist or forward.

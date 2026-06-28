@@ -228,12 +228,49 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 
 // EmitChunk forwards a chunk to the configured event sink.
 func (e *Engine) EmitChunk(ctx context.Context, runID, sessionID, agentID string, chunk contracts.Chunk) error {
-	event := contracts.NewEvent(contracts.EventChunk)
+	event := contracts.NewEvent(eventTypeForChunk(chunk))
 	event.RunID = runID
 	event.SessionID = sessionID
 	event.AgentID = agentID
 	event.Chunk = &chunk
+	event.Artifact = chunk.Artifact
+	event.Handoff = chunk.Handoff
+	event.Usage = chunk.Usage
+	if chunk.Type == contracts.ChunkError {
+		event.Error = chunk.Content
+	}
 	return e.emit(ctx, event)
+}
+
+func eventTypeForChunk(chunk contracts.Chunk) contracts.EventType {
+	switch chunk.Type {
+	case contracts.ChunkToolUse:
+		return contracts.EventToolStarted
+	case contracts.ChunkInputJSONDelta:
+		return contracts.EventToolInputDelta
+	case contracts.ChunkToolResult:
+		if chunk.IsError {
+			return contracts.EventToolFailed
+		}
+		return contracts.EventToolCompleted
+	case contracts.ChunkQuestion:
+		return contracts.EventQuestionAsked
+	case contracts.ChunkPermission:
+		return contracts.EventPermissionAsked
+	case contracts.ChunkUsage:
+		return contracts.EventUsageReported
+	case contracts.ChunkStatus:
+		if len(chunk.Plan) > 0 {
+			return contracts.EventPlanUpdated
+		}
+	case contracts.ChunkArtifact:
+		return contracts.EventArtifactCreated
+	case contracts.ChunkHandoff:
+		return contracts.EventHandoffCreated
+	case contracts.ChunkError:
+		return contracts.EventRuntimeError
+	}
+	return contracts.EventChunk
 }
 
 func (e *Engine) emit(ctx context.Context, event contracts.RunEvent) error {

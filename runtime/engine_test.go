@@ -94,6 +94,58 @@ func TestEnginePromptAndStop(t *testing.T) {
 	}
 }
 
+func TestEngineEmitChunkUsesSemanticEventTypes(t *testing.T) {
+	ctx := context.Background()
+	var events []contracts.RunEvent
+	engine := NewEngine(nil, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		events = append(events, event)
+		return nil
+	})))
+
+	chunks := []contracts.Chunk{
+		{Type: contracts.ChunkToolUse, ToolID: "t1"},
+		{Type: contracts.ChunkInputJSONDelta, ToolID: "t1", PartialJSON: "{}"},
+		{Type: contracts.ChunkToolResult, ToolID: "t1"},
+		{Type: contracts.ChunkToolResult, ToolID: "t2", IsError: true},
+		{Type: contracts.ChunkQuestion},
+		{Type: contracts.ChunkPermission, Permission: &contracts.PermissionRequest{ID: "p1"}},
+		{Type: contracts.ChunkUsage, Usage: &contracts.TokenUsage{InputTokens: 1}},
+		{Type: contracts.ChunkStatus, Plan: []contracts.PlanEntry{{Content: "plan"}}},
+		{Type: contracts.ChunkArtifact, Artifact: &contracts.Artifact{Name: "file", Type: contracts.ArtifactOther}},
+		{Type: contracts.ChunkHandoff, Handoff: &contracts.Handoff{Target: contracts.HandoffTarget{Type: "human"}}},
+		{Type: contracts.ChunkError, Content: "boom"},
+	}
+	for _, chunk := range chunks {
+		if err := engine.EmitChunk(ctx, "run-1", "session-1", "agent-1", chunk); err != nil {
+			t.Fatalf("emit chunk: %v", err)
+		}
+	}
+	want := []contracts.EventType{
+		contracts.EventToolStarted,
+		contracts.EventToolInputDelta,
+		contracts.EventToolCompleted,
+		contracts.EventToolFailed,
+		contracts.EventQuestionAsked,
+		contracts.EventPermissionAsked,
+		contracts.EventUsageReported,
+		contracts.EventPlanUpdated,
+		contracts.EventArtifactCreated,
+		contracts.EventHandoffCreated,
+		contracts.EventRuntimeError,
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events len = %d, want %d: %+v", len(events), len(want), events)
+	}
+	for i := range want {
+		if events[i].Type != want[i] {
+			t.Fatalf("event types = %+v, want %v at %d", events, want[i], i)
+		}
+	}
+	if events[8].Artifact == nil || events[9].Handoff == nil || events[10].Error != "boom" {
+		t.Fatalf("semantic payloads were not attached: %+v", events)
+	}
+}
+
 type detectingAdapter struct {
 	testAdapter
 }

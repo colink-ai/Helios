@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/colink-ai/helios/contracts"
 )
@@ -39,10 +40,20 @@ func ParseSessionUpdate(params json.RawMessage) ([]contracts.Chunk, error) {
 		return parseToolCall(update, rawUpdate)
 	case "tool_call_update":
 		return parseToolCallUpdate(update, rawUpdate)
+	case "tool_call_delta", "tool_input_delta", "input_json_delta":
+		return parseToolInputDelta(update, rawUpdate), nil
 	case "usage_update":
 		return parseUsage(update, rawUpdate), nil
 	case "plan":
 		return parsePlan(update, rawUpdate), nil
+	case "artifact", "artifact_created", "file_created":
+		return parseArtifact(update, rawUpdate), nil
+	case "handoff", "handoff_requested":
+		return parseHandoff(update, rawUpdate), nil
+	case "permission", "permission_request", "approval_request":
+		return parsePermission(update, rawUpdate), nil
+	case "error", "error_update", "agent_error", "stderr":
+		return parseError(update, rawUpdate), nil
 	}
 
 	return parseLooseUpdate(update, rawUpdate), nil
@@ -148,6 +159,17 @@ func parseUsage(update map[string]any, raw json.RawMessage) []contracts.Chunk {
 	return []contracts.Chunk{{Type: contracts.ChunkUsage, Usage: usage, Raw: raw}}
 }
 
+func parseToolInputDelta(update map[string]any, raw json.RawMessage) []contracts.Chunk {
+	return []contracts.Chunk{{
+		Type:        contracts.ChunkInputJSONDelta,
+		ToolID:      stringValue(update, "toolCallId", "tool_call_id", "toolId", "id"),
+		ToolName:    toolName(update),
+		PartialJSON: stringValue(update, "partialJson", "partialJSON", "delta", "inputDelta"),
+		Raw:         raw,
+		Metadata:    metadata(update, "status", "kind"),
+	}}
+}
+
 func parsePlan(update map[string]any, raw json.RawMessage) []contracts.Chunk {
 	entries := []contracts.PlanEntry{}
 	if values, ok := update["entries"].([]any); ok {
@@ -169,6 +191,93 @@ func parsePlan(update map[string]any, raw json.RawMessage) []contracts.Chunk {
 		Plan:     entries,
 		Raw:      raw,
 		Metadata: map[string]any{"sessionUpdate": updateType(update)},
+	}}
+}
+
+func parseArtifact(update map[string]any, raw json.RawMessage) []contracts.Chunk {
+	artifact := &contracts.Artifact{
+		ID:        stringValue(update, "artifactId", "artifact_id", "id"),
+		Type:      artifactType(stringValue(update, "artifactType", "type", "kind")),
+		Name:      stringValue(update, "name", "title", "path"),
+		Path:      stringValue(update, "path", "uri", "url"),
+		Content:   stringValue(update, "content", "text"),
+		MimeType:  stringValue(update, "mimeType", "mime_type"),
+		Metadata:  withoutKeys(update, "sessionUpdate", "session_update", "type", "artifactType", "kind", "name", "title", "path", "uri", "url", "content", "text", "mimeType", "mime_type"),
+		CreatedAt: time.Now().UTC(),
+	}
+	if artifact.Type == "" {
+		artifact.Type = contracts.ArtifactOther
+	}
+	if artifact.Name == "" {
+		artifact.Name = artifact.ID
+	}
+	return []contracts.Chunk{{
+		Type:     contracts.ChunkArtifact,
+		Content:  artifact.Name,
+		Artifact: artifact,
+		Raw:      raw,
+		Metadata: metadata(update, "status", "kind"),
+	}}
+}
+
+func parseHandoff(update map[string]any, raw json.RawMessage) []contracts.Chunk {
+	target := mapValue(update, "target")
+	handoff := &contracts.Handoff{
+		ID:     stringValue(update, "handoffId", "handoff_id", "id"),
+		Reason: stringValue(update, "reason", "message"),
+		Target: contracts.HandoffTarget{
+			Type: stringValue(target, "type", "kind"),
+			ID:   stringValue(target, "id"),
+			Name: stringValue(target, "name", "title"),
+		},
+		Payload:   mapValue(update, "payload", "input"),
+		CreatedAt: time.Now().UTC(),
+	}
+	if handoff.Target.Type == "" {
+		handoff.Target.Type = stringValue(update, "targetType", "target_type")
+	}
+	return []contracts.Chunk{{
+		Type:     contracts.ChunkHandoff,
+		Content:  handoff.Reason,
+		Handoff:  handoff,
+		Raw:      raw,
+		Metadata: metadata(update, "status", "kind"),
+	}}
+}
+
+func parsePermission(update map[string]any, raw json.RawMessage) []contracts.Chunk {
+	permission := &contracts.PermissionRequest{
+		ID:       stringValue(update, "permissionId", "permission_id", "toolCallId", "tool_call_id", "id"),
+		Action:   stringValue(update, "action", "operation", "toolName", "name", "title"),
+		Resource: stringValue(update, "resource", "path", "command", "url"),
+		Reason:   stringValue(update, "reason", "message", "description"),
+		Metadata: withoutKeys(update, "sessionUpdate", "session_update", "type", "permissionId", "permission_id", "toolCallId", "tool_call_id", "id", "action", "operation", "toolName", "name", "title", "resource", "path", "command", "url", "reason", "message", "description", "options"),
+	}
+	if options, ok := update["options"].([]any); ok {
+		permission.Options = parseOptions(options)
+	}
+	return []contracts.Chunk{{
+		Type:       contracts.ChunkPermission,
+		Content:    permission.Reason,
+		ToolID:     permission.ID,
+		ToolName:   permission.Action,
+		Permission: permission,
+		Raw:        raw,
+		Metadata:   metadata(update, "status", "kind"),
+	}}
+}
+
+func parseError(update map[string]any, raw json.RawMessage) []contracts.Chunk {
+	message := stringValue(update, "message", "error", "stderr", "text")
+	if message == "" {
+		message = "agent runtime error"
+	}
+	return []contracts.Chunk{{
+		Type:     contracts.ChunkError,
+		Content:  message,
+		IsError:  true,
+		Raw:      raw,
+		Metadata: metadata(update, "code", "status", "kind"),
 	}}
 }
 
@@ -272,6 +381,22 @@ func parseQuestions(input map[string]any) []contracts.QuestionItem {
 	return out
 }
 
+func parseOptions(values []any) []contracts.QuestionOption {
+	out := make([]contracts.QuestionOption, 0, len(values))
+	for _, value := range values {
+		item, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, contracts.QuestionOption{
+			Label:       stringValue(item, "label", "title", "value"),
+			Description: stringValue(item, "description", "detail"),
+			Preview:     stringValue(item, "preview"),
+		})
+	}
+	return out
+}
+
 func extractContentBlocks(value any) []contracts.ContentBlock {
 	values, ok := value.([]any)
 	if !ok {
@@ -296,6 +421,25 @@ func extractContentBlocks(value any) []contracts.ContentBlock {
 		})
 	}
 	return out
+}
+
+func artifactType(value string) contracts.ArtifactType {
+	switch strings.ToLower(value) {
+	case "code":
+		return contracts.ArtifactCode
+	case "document", "doc":
+		return contracts.ArtifactDocument
+	case "review":
+		return contracts.ArtifactReview
+	case "test", "tests":
+		return contracts.ArtifactTest
+	case "config", "configuration":
+		return contracts.ArtifactConfig
+	case "data", "dataset":
+		return contracts.ArtifactData
+	default:
+		return contracts.ArtifactOther
+	}
 }
 
 func joinTextBlocks(blocks []contracts.ContentBlock) string {

@@ -127,3 +127,52 @@ func TestParseACPUsageAndPlan(t *testing.T) {
 		t.Fatalf("unexpected plan chunks: %+v", chunks)
 	}
 }
+
+func TestParseACPArtifactHandoffPermissionAndError(t *testing.T) {
+	artifact := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"artifact_created","artifactId":"a1","artifactType":"code","name":"patch.diff","path":"/tmp/patch.diff"}}`)
+	chunks, err := ParseSessionUpdate(artifact)
+	if err != nil {
+		t.Fatalf("parse artifact: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkArtifact || chunks[0].Artifact.Name != "patch.diff" || chunks[0].Artifact.Type != contracts.ArtifactCode {
+		t.Fatalf("unexpected artifact chunks: %+v", chunks)
+	}
+
+	handoff := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"handoff_requested","handoffId":"h1","reason":"needs review","target":{"type":"human","id":"u1","name":"Reviewer"},"payload":{"risk":"high"}}}`)
+	chunks, err = ParseSessionUpdate(handoff)
+	if err != nil {
+		t.Fatalf("parse handoff: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkHandoff || chunks[0].Handoff.Target.Type != "human" || chunks[0].Handoff.Payload["risk"] != "high" {
+		t.Fatalf("unexpected handoff chunks: %+v", chunks)
+	}
+
+	permission := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"permission_request","permissionId":"p1","action":"shell","command":"go test","reason":"run tests","options":[{"label":"Allow"}]}}`)
+	chunks, err = ParseSessionUpdate(permission)
+	if err != nil {
+		t.Fatalf("parse permission: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkPermission || chunks[0].Permission.Action != "shell" || chunks[0].Permission.Options[0].Label != "Allow" {
+		t.Fatalf("unexpected permission chunks: %+v", chunks)
+	}
+
+	errUpdate := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"error","message":"boom","code":"E_RUNTIME"}}`)
+	chunks, err = ParseSessionUpdate(errUpdate)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkError || chunks[0].Content != "boom" || !chunks[0].IsError {
+		t.Fatalf("unexpected error chunks: %+v", chunks)
+	}
+}
+
+func TestParseACPToolInputDelta(t *testing.T) {
+	params := json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"tool_input_delta","toolCallId":"t1","title":"edit","partialJson":"{\"path\""}}`)
+	chunks, err := ParseSessionUpdate(params)
+	if err != nil {
+		t.Fatalf("parse delta: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkInputJSONDelta || chunks[0].ToolID != "t1" || chunks[0].PartialJSON != "{\"path\"" {
+		t.Fatalf("unexpected delta chunks: %+v", chunks)
+	}
+}
