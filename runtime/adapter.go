@@ -48,6 +48,20 @@ type ToolResultSender interface {
 	SendToolResult(ctx context.Context, sessionID string, toolCallID string, result string) error
 }
 
+// PermissionDecision is the host application's answer to a runtime permission
+// request.
+type PermissionDecision struct {
+	Allow    bool           `json:"allow"`
+	Reason   string         `json:"reason,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+// PermissionResultSender is implemented by adapters that can continue a
+// blocked permission request with a host decision.
+type PermissionResultSender interface {
+	SendPermissionResult(ctx context.Context, sessionID string, permissionID string, decision PermissionDecision) error
+}
+
 // SessionInspector exposes implementation-specific resume metadata.
 type SessionInspector interface {
 	AgentSessionID(ctx context.Context, sessionID string) (string, error)

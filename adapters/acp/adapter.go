@@ -38,21 +38,23 @@ type BaseAdapter struct {
 }
 
 type session struct {
-	id               string
-	agentSessionID   string
-	cmd              *exec.Cmd
-	cancel           context.CancelFunc
-	transport        *transport
-	status           helios.SessionStatus
-	output           strings.Builder
-	stderr           strings.Builder
-	onChunk          helios.ChunkHandler
-	pendingRequest   any
-	pendingQuestions []contracts.QuestionItem
-	nativeResume     bool
-	resumeStrategy   string
-	suppressReplay   bool
-	mu               sync.Mutex
+	id                  string
+	agentSessionID      string
+	cmd                 *exec.Cmd
+	cancel              context.CancelFunc
+	transport           *transport
+	status              helios.SessionStatus
+	output              strings.Builder
+	stderr              strings.Builder
+	onChunk             helios.ChunkHandler
+	pendingRequest      any
+	pendingQuestions    []contracts.QuestionItem
+	pendingPermission   any
+	pendingPermissionID string
+	nativeResume        bool
+	resumeStrategy      string
+	suppressReplay      bool
+	mu                  sync.Mutex
 }
 
 func NewBaseAdapter(config Config) *BaseAdapter {
@@ -355,6 +357,31 @@ func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, _ stri
 	}, nil)
 }
 
+func (a *BaseAdapter) SendPermissionResult(_ context.Context, sessionID string, _ string, decision helios.PermissionDecision) error {
+	s, err := a.get(sessionID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	pending := s.pendingPermission
+	s.pendingPermission = nil
+	s.pendingPermissionID = ""
+	s.mu.Unlock()
+	if pending == nil {
+		return fmt.Errorf("session %s has no pending permission request", sessionID)
+	}
+	action := "reject"
+	if decision.Allow {
+		action = "accept"
+	}
+	return s.transport.sendResponse(pending, map[string]any{
+		"action":   action,
+		"allow":    decision.Allow,
+		"reason":   decision.Reason,
+		"metadata": decision.Metadata,
+	}, nil)
+}
+
 func (a *BaseAdapter) AgentSessionID(_ context.Context, sessionID string) (string, error) {
 	s, err := a.get(sessionID)
 	if err != nil {
@@ -463,6 +490,28 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, params js
 				ToolID:    toolCallID,
 				Questions: questions,
 				Raw:       params,
+			})
+		}
+		return
+	}
+	if isPermissionRequestMethod(method) {
+		permission := parsePermissionRequest(params)
+		if permission.ID == "" {
+			permission.ID = fmt.Sprintf("permission-%v", id)
+		}
+		s.mu.Lock()
+		s.pendingPermission = id
+		s.pendingPermissionID = permission.ID
+		cb := s.onChunk
+		s.mu.Unlock()
+		if cb != nil {
+			cb(contracts.Chunk{
+				Type:       contracts.ChunkPermission,
+				Content:    permission.Reason,
+				ToolID:     permission.ID,
+				ToolName:   permission.Action,
+				Permission: permission,
+				Raw:        params,
 			})
 		}
 		return

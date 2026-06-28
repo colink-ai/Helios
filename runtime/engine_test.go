@@ -94,6 +94,41 @@ func TestEnginePromptAndStop(t *testing.T) {
 	}
 }
 
+type permissionAdapter struct {
+	testAdapter
+	decision PermissionDecision
+}
+
+func (a *permissionAdapter) SendPermissionResult(_ context.Context, _ string, _ string, decision PermissionDecision) error {
+	a.decision = decision
+	return nil
+}
+
+func TestEngineSendPermissionResult(t *testing.T) {
+	ctx := context.Background()
+	adapter := &permissionAdapter{}
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "permission",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return adapter, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "session-perm", Agent: AgentSpec{Type: "permission"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := engine.SendPermissionResult(ctx, handle.ID, "p1", PermissionDecision{Allow: true, Reason: "ok"}); err != nil {
+		t.Fatalf("send permission: %v", err)
+	}
+	if !adapter.decision.Allow || adapter.decision.Reason != "ok" {
+		t.Fatalf("unexpected decision: %+v", adapter.decision)
+	}
+}
+
 func TestEngineEmitChunkUsesSemanticEventTypes(t *testing.T) {
 	ctx := context.Background()
 	var events []contracts.RunEvent

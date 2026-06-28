@@ -226,6 +226,63 @@ func TestBaseAdapterElicitationE2E(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterPermissionResultE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-permission",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	permissionCh := make(chan contracts.Chunk, 1)
+	resultCh := make(chan *helios.RunResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "please approve"}, func(chunk contracts.Chunk) {
+			if chunk.Type == contracts.ChunkPermission {
+				permissionCh <- chunk
+			}
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	var permission contracts.Chunk
+	select {
+	case permission = <-permissionCh:
+	case err := <-errCh:
+		t.Fatalf("prompt failed before permission: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for permission")
+	}
+	if permission.Permission == nil || permission.Permission.Action != "shell" {
+		t.Fatalf("unexpected permission: %+v", permission)
+	}
+	if err := adapter.SendPermissionResult(ctx, handle.ID, permission.ToolID, helios.PermissionDecision{Allow: true, Reason: "test"}); err != nil {
+		t.Fatalf("send permission result: %v", err)
+	}
+
+	select {
+	case result := <-resultCh:
+		if result.Output != "permission accepted" {
+			t.Fatalf("output = %q", result.Output)
+		}
+	case err := <-errCh:
+		t.Fatalf("prompt failed: %v", err)
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for prompt result")
+	}
+}
+
 func TestBaseAdapterDetectCapabilitiesE2E(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -287,6 +344,7 @@ func runFakeACPAgent() {
 	defer writer.Flush()
 	var pendingPromptID any
 	waitingForElicitation := false
+	waitingForPermission := false
 	for scanner.Scan() {
 		var req struct {
 			ID     any             `json:"id"`
@@ -300,6 +358,13 @@ func runFakeACPAgent() {
 		if req.Method == "" && waitingForElicitation {
 			waitingForElicitation = false
 			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "answer accepted"}})
+			writeFakeResult(writer, pendingPromptID, map[string]any{"stopReason": "end_turn"})
+			pendingPromptID = nil
+			continue
+		}
+		if req.Method == "" && waitingForPermission {
+			waitingForPermission = false
+			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "permission accepted"}})
 			writeFakeResult(writer, pendingPromptID, map[string]any{"stopReason": "end_turn"})
 			pendingPromptID = nil
 			continue
@@ -371,6 +436,22 @@ func runFakeACPAgent() {
 								},
 							},
 						},
+					},
+				})
+				continue
+			}
+			if fakePromptText(params) == "please approve" {
+				pendingPromptID = req.ID
+				waitingForPermission = true
+				writeFake(writer, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      "permission-1",
+					"method":  "permission/request",
+					"params": map[string]any{
+						"permissionId": "perm-shell",
+						"action":       "shell",
+						"command":      "go test ./...",
+						"reason":       "Run tests",
 					},
 				})
 				continue

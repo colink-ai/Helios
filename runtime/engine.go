@@ -167,6 +167,22 @@ func (e *Engine) StopSession(ctx context.Context, sessionID string) error {
 	return e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
 }
 
+// SendPermissionResult answers a pending permission request for adapters that
+// support host-driven permission decisions.
+func (e *Engine) SendPermissionResult(ctx context.Context, sessionID string, permissionID string, decision PermissionDecision) error {
+	e.mu.RLock()
+	adapter, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session %s is not active", sessionID)
+	}
+	sender, ok := adapter.(PermissionResultSender)
+	if !ok {
+		return fmt.Errorf("adapter for session %s does not support permission results", sessionID)
+	}
+	return sender.SendPermissionResult(ctx, sessionID, permissionID, decision)
+}
+
 // Run executes a one-shot request. Native RunAdapter implementations are used
 // directly; other adapters are driven through a temporary session.
 func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
