@@ -88,13 +88,13 @@ func TestTakePendingElicitation(t *testing.T) {
 }
 
 func TestTakePendingPermission(t *testing.T) {
-	values := map[string]any{"p1": "r1", "p2": "r2"}
+	values := map[string]pendingPermission{"p1": {request: "r1"}, "p2": {request: "r2"}}
 	key, pending := takePendingPermission(values, "p2")
-	if key != "p2" || pending != "r2" {
+	if key != "p2" || pending.request != "r2" {
 		t.Fatalf("unexpected pending: %s %+v", key, pending)
 	}
 	key, pending = takePendingPermission(values, "")
-	if key == "" || pending == nil {
+	if key == "" || pending.request == nil {
 		t.Fatalf("expected fallback pending, got %s %+v", key, pending)
 	}
 }

@@ -62,6 +62,25 @@ type PermissionResultSender interface {
 	SendPermissionResult(ctx context.Context, sessionID string, permissionID string, decision PermissionDecision) error
 }
 
+type PendingRequestKind string
+
+const (
+	PendingRequestElicitation PendingRequestKind = "elicitation"
+	PendingRequestPermission  PendingRequestKind = "permission"
+)
+
+type PendingRequest struct {
+	ID        string             `json:"id"`
+	Kind      PendingRequestKind `json:"kind"`
+	CreatedAt string             `json:"createdAt,omitempty"`
+	Metadata  map[string]any     `json:"metadata,omitempty"`
+}
+
+type PendingRequestInspector interface {
+	PendingRequests(ctx context.Context, sessionID string) ([]PendingRequest, error)
+	CancelPendingRequest(ctx context.Context, sessionID string, requestID string, reason string) error
+}
+
 // SessionInspector exposes implementation-specific resume metadata.
 type SessionInspector interface {
 	AgentSessionID(ctx context.Context, sessionID string) (string, error)

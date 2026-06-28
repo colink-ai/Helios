@@ -187,6 +187,20 @@ func (a *eventSourceAdapter) SessionEvents(context.Context, string) (<-chan Sess
 	return a.events, nil
 }
 
+type pendingAdapter struct {
+	testAdapter
+	canceled string
+}
+
+func (a *pendingAdapter) PendingRequests(context.Context, string) ([]PendingRequest, error) {
+	return []PendingRequest{{ID: "p1", Kind: PendingRequestPermission}}, nil
+}
+
+func (a *pendingAdapter) CancelPendingRequest(_ context.Context, _ string, requestID string, _ string) error {
+	a.canceled = requestID
+	return nil
+}
+
 func TestEngineSendPermissionResult(t *testing.T) {
 	ctx := context.Background()
 	adapter := &permissionAdapter{}
@@ -209,6 +223,38 @@ func TestEngineSendPermissionResult(t *testing.T) {
 	}
 	if !adapter.decision.Allow || adapter.decision.Reason != "ok" {
 		t.Fatalf("unexpected decision: %+v", adapter.decision)
+	}
+}
+
+func TestEnginePendingRequests(t *testing.T) {
+	ctx := context.Background()
+	adapter := &pendingAdapter{}
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "pending",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return adapter, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "pending-session", Agent: AgentSpec{Type: "pending"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	pending, err := engine.PendingRequests(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != "p1" {
+		t.Fatalf("unexpected pending: %+v", pending)
+	}
+	if err := engine.CancelPendingRequest(ctx, handle.ID, "p1", "timeout"); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if adapter.canceled != "p1" {
+		t.Fatalf("unexpected canceled id: %s", adapter.canceled)
 	}
 }
 

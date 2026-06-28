@@ -236,6 +236,34 @@ func (e *Engine) SendPermissionResult(ctx context.Context, sessionID string, per
 	return sender.SendPermissionResult(ctx, sessionID, permissionID, decision)
 }
 
+func (e *Engine) PendingRequests(ctx context.Context, sessionID string) ([]PendingRequest, error) {
+	e.mu.RLock()
+	adapter, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("session %s is not active", sessionID)
+	}
+	inspector, ok := adapter.(PendingRequestInspector)
+	if !ok {
+		return nil, fmt.Errorf("adapter for session %s does not support pending request inspection", sessionID)
+	}
+	return inspector.PendingRequests(ctx, sessionID)
+}
+
+func (e *Engine) CancelPendingRequest(ctx context.Context, sessionID string, requestID string, reason string) error {
+	e.mu.RLock()
+	adapter, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session %s is not active", sessionID)
+	}
+	inspector, ok := adapter.(PendingRequestInspector)
+	if !ok {
+		return fmt.Errorf("adapter for session %s does not support pending request cancellation", sessionID)
+	}
+	return inspector.CancelPendingRequest(ctx, sessionID, requestID, reason)
+}
+
 // Diagnostics returns adapter-level session diagnostics when available.
 func (e *Engine) Diagnostics(ctx context.Context, sessionID string) (SessionDiagnostics, error) {
 	e.mu.RLock()
