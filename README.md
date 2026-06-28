@@ -137,6 +137,22 @@ For local CLI probes, use:
 go run ./cmd/helios-compat -agent hermes -cli hermes
 ```
 
+For real CLI + real API key integration tests, use the `integration` build tag:
+
+```bash
+HELIOS_INTEGRATION=1 \
+HELIOS_AGENT_TYPE=open_code \
+HELIOS_AGENT_CLI=opencode \
+HELIOS_API_URL=https://model.example/v1 \
+HELIOS_API_KEY=... \
+HELIOS_MODEL=gpt-4.1 \
+go test -tags=integration ./integration
+```
+
+These tests are intentionally excluded from default `go test ./...` coverage.
+They validate installed agent CLIs, credentials, network access, and real model
+responses rather than SDK-only logic.
+
 See [docs/compatibility.md](docs/compatibility.md) for the adapter matrix and
 release-gate checklist.
 
