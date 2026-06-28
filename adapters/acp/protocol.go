@@ -31,6 +31,40 @@ type Notification struct {
 	Params json.RawMessage `json:"params,omitempty"`
 }
 
+type InitializeParams struct {
+	ProtocolVersion    int            `json:"protocolVersion"`
+	ClientCapabilities map[string]any `json:"clientCapabilities,omitempty"`
+}
+
+type InitializeResult struct {
+	ProtocolVersion   int            `json:"protocolVersion,omitempty"`
+	AgentCapabilities map[string]any `json:"agentCapabilities,omitempty"`
+}
+
+type SessionParams struct {
+	CWD        string `json:"cwd,omitempty"`
+	SessionID  string `json:"sessionId,omitempty"`
+	MCPServers []any  `json:"mcpServers,omitempty"`
+}
+
+type PromptParams struct {
+	SessionID string         `json:"sessionId,omitempty"`
+	Prompt    []ContentBlock `json:"prompt,omitempty"`
+}
+
+type EndSessionParams struct {
+	SessionID string `json:"sessionId,omitempty"`
+}
+
+type ContentBlock struct {
+	Type     string         `json:"type"`
+	Text     string         `json:"text,omitempty"`
+	MimeType string         `json:"mimeType,omitempty"`
+	Data     string         `json:"data,omitempty"`
+	URL      string         `json:"url,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 // NewRequest creates a JSON-RPC request.
 func NewRequest(id any, method string, params any) Request {
 	return Request{JSONRPC: "2.0", ID: id, Method: method, Params: params}
