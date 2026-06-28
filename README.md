@@ -131,6 +131,15 @@ The harness is intentionally SDK-level. It reports whether a runtime can be
 detected, started, prompted, resumed, or asked for capabilities without requiring
 Helios to know an application's database or tenant model.
 
+For local CLI probes, use:
+
+```bash
+go run ./cmd/helios-compat -agent hermes -cli hermes
+```
+
+See [docs/compatibility.md](docs/compatibility.md) for the adapter matrix and
+release-gate checklist.
+
 ## Permission Flow
 
 When an agent asks for permission, Helios emits a semantic event:
