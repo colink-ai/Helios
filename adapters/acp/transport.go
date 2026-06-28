@@ -58,6 +58,12 @@ func (t *transport) close() error {
 	return nil
 }
 
+func (t *transport) backgroundError() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.backgroundErr
+}
+
 func (t *transport) sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	id := atomic.AddInt64(&t.nextID, 1)
 	key := idKey(float64(id))
@@ -131,7 +137,9 @@ func (t *transport) readLoop() {
 		}
 		t.handleResponse(raw)
 	}
+	t.mu.Lock()
 	t.backgroundErr = scanner.Err()
+	t.mu.Unlock()
 }
 
 func (t *transport) handleMethod(raw map[string]json.RawMessage) {

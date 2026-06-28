@@ -402,6 +402,28 @@ func (a *BaseAdapter) UsedNativeResume(_ context.Context, sessionID string) (boo
 	return s.nativeResume, nil
 }
 
+func (a *BaseAdapter) Diagnostics(_ context.Context, sessionID string) (helios.SessionDiagnostics, error) {
+	s, err := a.get(sessionID)
+	if err != nil {
+		return helios.SessionDiagnostics{}, err
+	}
+	s.mu.Lock()
+	diag := helios.SessionDiagnostics{
+		SessionID:      sessionID,
+		AgentSessionID: s.agentSessionID,
+		Status:         s.status,
+		Stderr:         s.stderr.String(),
+		Metadata:       map[string]any{"nativeResume": s.nativeResume, "resumeStrategy": s.resumeStrategy},
+	}
+	s.mu.Unlock()
+	if s.transport != nil {
+		if err := s.transport.backgroundError(); err != nil {
+			diag.TransportError = err.Error()
+		}
+	}
+	return diag, nil
+}
+
 func (a *BaseAdapter) get(sessionID string) (*session, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

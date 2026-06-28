@@ -68,6 +68,21 @@ type SessionInspector interface {
 	UsedNativeResume(ctx context.Context, sessionID string) (bool, error)
 }
 
+// SessionDiagnostics is a runtime-readable view of adapter health details.
+type SessionDiagnostics struct {
+	SessionID      string         `json:"sessionId"`
+	AgentSessionID string         `json:"agentSessionId,omitempty"`
+	Status         SessionStatus  `json:"status"`
+	Stderr         string         `json:"stderr,omitempty"`
+	TransportError string         `json:"transportError,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+}
+
+// DiagnosticProvider is implemented by adapters that expose session diagnostics.
+type DiagnosticProvider interface {
+	Diagnostics(ctx context.Context, sessionID string) (SessionDiagnostics, error)
+}
+
 // SessionHandle is returned after a session has been created.
 type SessionHandle struct {
 	ID             string         `json:"id"`

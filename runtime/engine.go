@@ -183,6 +183,24 @@ func (e *Engine) SendPermissionResult(ctx context.Context, sessionID string, per
 	return sender.SendPermissionResult(ctx, sessionID, permissionID, decision)
 }
 
+// Diagnostics returns adapter-level session diagnostics when available.
+func (e *Engine) Diagnostics(ctx context.Context, sessionID string) (SessionDiagnostics, error) {
+	e.mu.RLock()
+	adapter, ok := e.sessions[sessionID]
+	e.mu.RUnlock()
+	if !ok {
+		return SessionDiagnostics{}, fmt.Errorf("session %s is not active", sessionID)
+	}
+	if provider, ok := adapter.(DiagnosticProvider); ok {
+		return provider.Diagnostics(ctx, sessionID)
+	}
+	status, err := adapter.GetSessionStatus(ctx, sessionID)
+	if err != nil {
+		return SessionDiagnostics{}, err
+	}
+	return SessionDiagnostics{SessionID: sessionID, Status: status}, nil
+}
+
 // Run executes a one-shot request. Native RunAdapter implementations are used
 // directly; other adapters are driven through a temporary session.
 func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {

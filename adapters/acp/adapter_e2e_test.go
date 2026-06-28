@@ -96,6 +96,28 @@ func TestBaseAdapterResumeSessionE2E(t *testing.T) {
 	_ = adapter.StopSession(ctx, handle.ID)
 }
 
+func TestBaseAdapterDiagnosticsE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-diag",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+	diag, err := adapter.Diagnostics(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if diag.SessionID != handle.ID || diag.AgentSessionID != "fake-session-new" || diag.Status != helios.SessionRunning {
+		t.Fatalf("unexpected diagnostics: %+v", diag)
+	}
+}
+
 func TestBaseAdapterResumeFallsBackToLoadE2E(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

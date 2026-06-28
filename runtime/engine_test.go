@@ -129,6 +129,31 @@ func TestEngineSendPermissionResult(t *testing.T) {
 	}
 }
 
+func TestEngineDiagnosticsFallback(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "test",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return testAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "session-diag", Agent: AgentSpec{Type: "test"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	diag, err := engine.Diagnostics(ctx, handle.ID)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if diag.SessionID != handle.ID || diag.Status != SessionRunning {
+		t.Fatalf("unexpected diagnostics: %+v", diag)
+	}
+}
+
 func TestEngineEmitChunkUsesSemanticEventTypes(t *testing.T) {
 	ctx := context.Background()
 	var events []contracts.RunEvent
