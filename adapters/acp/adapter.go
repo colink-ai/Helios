@@ -26,6 +26,7 @@ type Config struct {
 	BuildArgs            func(helios.SessionRequest) []string
 	BuildEnv             func(helios.SessionRequest) []string
 	ConfigureModelViaACP bool
+	ModelRef             func(helios.SessionRequest) string
 	StartupTimeout       time.Duration
 	PromptTimeout        time.Duration
 }
@@ -154,6 +155,11 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	}
 	if s.agentSessionID == "" {
 		s.agentSessionID = parseSessionID(sessionResult, sessionID)
+	}
+	if a.config.ConfigureModelViaACP {
+		if err := a.configureModel(startCtx, req, s); err != nil {
+			return nil, fail("model configuration", err)
+		}
 	}
 	s.id = sessionID
 	s.status = helios.SessionRunning
@@ -377,6 +383,22 @@ func (a *BaseAdapter) handleRequest(s *session, id any, method string, _ json.Ra
 		return
 	}
 	_ = s.transport.sendResponse(id, nil, &Error{Code: -32601, Message: "method not found"})
+}
+
+func (a *BaseAdapter) configureModel(ctx context.Context, req helios.SessionRequest, s *session) error {
+	model := req.Agent.DefaultModel
+	if a.config.ModelRef != nil {
+		model = a.config.ModelRef(req)
+	}
+	if model == "" {
+		return nil
+	}
+	_, err := s.transport.sendRequest(ctx, "session/set_config_option", map[string]any{
+		"sessionId": s.agentSessionID,
+		"path":      []string{"model"},
+		"value":     model,
+	})
+	return err
 }
 
 func (a *BaseAdapter) cliPath(spec helios.AgentSpec) string {
