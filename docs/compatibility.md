@@ -52,6 +52,38 @@ Useful environment variables:
 | `HELIOS_RUN_ONESHOT` | Set to `1` to also validate `Engine.Run`; resident session validation always runs. |
 | `HELIOS_ALLOW_EXISTING_AUTH` | Set to `1` when the CLI should use existing local auth instead of `HELIOS_API_KEY`. |
 
+To cover several foundation-agent adapters without running a full cartesian
+matrix, enable the explicit agent coverage suite:
+
+```bash
+HELIOS_INTEGRATION=1 \
+HELIOS_RUN_AGENT_COVERAGE=1 \
+HELIOS_OPENAI_API_URL=https://model.example/v1 \
+HELIOS_ANTHROPIC_API_URL=https://model.example/anthropic \
+HELIOS_API_KEY=... \
+HELIOS_TEXT_MODEL=glm-5 \
+HELIOS_MULTIMODAL_MODEL=qwen3.7-plus \
+HELIOS_TEXT_ONLY_MODEL=glm-5 \
+go test -tags=integration ./integration -run TestRealAgentCLIAgentCoverage
+```
+
+By default this suite runs text scenarios for `hermes`, `open_code`, and
+`claude_code`; a positive multimodal scenario through `hermes`; multimodal
+bridge guard scenarios for `open_code` and `claude_code`; and a negative
+text-only-model multimodal scenario through `hermes` when `HELIOS_TEXT_ONLY_MODEL`
+is set. Override it with
+`HELIOS_AGENT_COVERAGE_SCENARIOS` when a release needs a different explicit
+set:
+
+```bash
+HELIOS_AGENT_COVERAGE_SCENARIOS='hermes_text:hermes:openai:glm-5:text,hermes_vision:hermes:openai:qwen3.7-plus:multimodal'
+```
+
+Each scenario is `name:agent:protocol:model:mode`, where `protocol` is
+`openai` or `anthropic`, and `mode` is `text`, `multimodal`, or
+`multimodal_fail`. Per-agent CLI overrides use variables such as
+`HELIOS_HERMES_CLI`, `HELIOS_OPEN_CODE_CLI`, and `HELIOS_CLAUDE_CODE_CLI`.
+
 These tests are not included in default coverage numbers. They are release or
 environment checks for real CLI installation, credential wiring, network access,
 and model-provider behavior.

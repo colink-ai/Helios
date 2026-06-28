@@ -108,6 +108,93 @@ func TestRealAgentCLIMultimodalPrompt(t *testing.T) {
 	if !cfg.runMultimodal {
 		t.Skip("set HELIOS_RUN_MULTIMODAL=1 to validate image input against the real CLI")
 	}
+	runMultimodalPrompt(t, cfg)
+}
+
+func TestRealAgentCLIAgentCoverage(t *testing.T) {
+	if os.Getenv("HELIOS_INTEGRATION") != "1" {
+		t.Skip("set HELIOS_INTEGRATION=1 to run real CLI integration tests")
+	}
+	if os.Getenv("HELIOS_RUN_AGENT_COVERAGE") != "1" {
+		t.Skip("set HELIOS_RUN_AGENT_COVERAGE=1 to run the real CLI agent coverage scenarios")
+	}
+	apiKey := os.Getenv("HELIOS_API_KEY")
+	if apiKey == "" && os.Getenv("HELIOS_ALLOW_EXISTING_AUTH") != "1" {
+		t.Skip("set HELIOS_API_KEY, or HELIOS_ALLOW_EXISTING_AUTH=1 when CLIs should use existing local auth")
+	}
+
+	for _, scenario := range loadCoverageScenarios(t) {
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := loadScenarioConfig(t, scenario)
+			switch scenario.mode {
+			case "text":
+				runResidentSession(t, cfg)
+			case "multimodal":
+				runMultimodalPrompt(t, cfg)
+			case "multimodal_fail":
+				cfg.expectMultimodalFailure = true
+				runMultimodalPrompt(t, cfg)
+			default:
+				t.Fatalf("unknown scenario mode %q", scenario.mode)
+			}
+		})
+	}
+}
+
+func runResidentSession(t *testing.T, cfg integrationConfig) {
+	t.Helper()
+	registry := helios.NewRegistry()
+	if err := all.Register(registry); err != nil {
+		t.Fatalf("register adapters: %v", err)
+	}
+
+	var chunks []contracts.Chunk
+	engine := helios.NewEngine(registry, helios.WithEventSink(helios.EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		if event.Chunk != nil {
+			chunks = append(chunks, *event.Chunk)
+		}
+		return nil
+	})))
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
+	defer cancel()
+
+	caps, err := engine.DetectCapabilities(ctx, cfg.agent)
+	if err != nil {
+		t.Fatalf("detect real agent capabilities: %v", err)
+	}
+	t.Logf("detected real agent type=%s protocol=%s resident=%v oneshot=%v resume=%v", caps.AgentType, caps.Protocol, caps.ResidentSessions, caps.OneShotRuns, caps.NativeResume)
+
+	handle, err := engine.StartSession(ctx, helios.SessionRequest{
+		SessionID:   helios.NewID("integration"),
+		Agent:       cfg.agent,
+		WorkDir:     cfg.workDir,
+		RuntimeHome: cfg.runtimeHome,
+	})
+	if err != nil {
+		t.Fatalf("start real agent session: %v", err)
+	}
+	defer stopSession(t, engine, handle.ID)
+
+	result, err := engine.Prompt(ctx, helios.PromptRequest{
+		SessionID: handle.ID,
+		Input:     cfg.prompt,
+	})
+	if err != nil {
+		t.Fatalf("prompt real agent session: %v", err)
+	}
+	output := ""
+	if result != nil {
+		output = result.Output
+	}
+	if strings.TrimSpace(output) == "" {
+		output = textFromChunks(chunks)
+	}
+	assertOutput(t, output, cfg.expectContains)
+}
+
+func runMultimodalPrompt(t *testing.T, cfg integrationConfig) {
+	t.Helper()
 	registry := helios.NewRegistry()
 	if err := all.Register(registry); err != nil {
 		t.Fatalf("register adapters: %v", err)
@@ -131,13 +218,7 @@ func TestRealAgentCLIMultimodalPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start real multimodal session: %v", err)
 	}
-	defer func() {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer stopCancel()
-		if err := engine.StopSession(stopCtx, handle.ID); err != nil {
-			t.Logf("stop real multimodal session: %v", err)
-		}
-	}()
+	defer stopSession(t, engine, handle.ID)
 
 	result, err := engine.Prompt(ctx, helios.PromptRequest{
 		SessionID: handle.ID,
@@ -179,6 +260,15 @@ func TestRealAgentCLIMultimodalPrompt(t *testing.T) {
 	assertOutput(t, output, cfg.multimodalExpectContains)
 }
 
+func stopSession(t *testing.T, engine *helios.Engine, sessionID string) {
+	t.Helper()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer stopCancel()
+	if err := engine.StopSession(stopCtx, sessionID); err != nil {
+		t.Logf("stop real agent session: %v", err)
+	}
+}
+
 type integrationConfig struct {
 	agent                    helios.AgentSpec
 	workDir                  string
@@ -191,6 +281,14 @@ type integrationConfig struct {
 	runOneShot               bool
 	runMultimodal            bool
 	expectMultimodalFailure  bool
+}
+
+type coverageScenario struct {
+	name     string
+	agent    string
+	protocol string
+	model    string
+	mode     string
 }
 
 func loadIntegrationConfig(t *testing.T) integrationConfig {
@@ -262,6 +360,127 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 	}
 }
 
+func loadCoverageScenarios(t *testing.T) []coverageScenario {
+	t.Helper()
+	if raw := os.Getenv("HELIOS_AGENT_COVERAGE_SCENARIOS"); raw != "" {
+		scenarios := []coverageScenario{}
+		for _, item := range splitCSV(raw) {
+			parts := strings.Split(item, ":")
+			if len(parts) != 5 {
+				t.Fatalf("HELIOS_AGENT_COVERAGE_SCENARIOS item %q must be name:agent:protocol:model:mode", item)
+			}
+			scenarios = append(scenarios, coverageScenario{
+				name:     strings.TrimSpace(parts[0]),
+				agent:    strings.TrimSpace(parts[1]),
+				protocol: strings.TrimSpace(parts[2]),
+				model:    strings.TrimSpace(parts[3]),
+				mode:     strings.TrimSpace(parts[4]),
+			})
+		}
+		return scenarios
+	}
+
+	textModel := envDefault("HELIOS_TEXT_MODEL", os.Getenv("HELIOS_MODEL"))
+	multimodalModel := os.Getenv("HELIOS_MULTIMODAL_MODEL")
+	textOnlyModel := os.Getenv("HELIOS_TEXT_ONLY_MODEL")
+	if textModel == "" {
+		t.Fatalf("HELIOS_TEXT_MODEL or HELIOS_MODEL is required for agent coverage scenarios")
+	}
+	scenarios := []coverageScenario{
+		{name: "hermes_text", agent: "hermes", protocol: "openai", model: textModel, mode: "text"},
+		{name: "open_code_text", agent: "open_code", protocol: "openai", model: textModel, mode: "text"},
+		{name: "claude_code_text", agent: "claude_code", protocol: "anthropic", model: textModel, mode: "text"},
+	}
+	if multimodalModel != "" {
+		scenarios = append(scenarios, coverageScenario{
+			name: "hermes_multimodal_supported", agent: "hermes", protocol: "openai", model: multimodalModel, mode: "multimodal",
+		})
+		scenarios = append(scenarios, coverageScenario{
+			name: "open_code_multimodal_bridge", agent: "open_code", protocol: "openai", model: multimodalModel, mode: "multimodal_fail",
+		})
+		scenarios = append(scenarios, coverageScenario{
+			name: "claude_code_multimodal_bridge", agent: "claude_code", protocol: "anthropic", model: multimodalModel, mode: "multimodal_fail",
+		})
+	}
+	if textOnlyModel != "" {
+		scenarios = append(scenarios, coverageScenario{
+			name: "hermes_multimodal_unsupported", agent: "hermes", protocol: "openai", model: textOnlyModel, mode: "multimodal_fail",
+		})
+	}
+	return scenarios
+}
+
+func loadScenarioConfig(t *testing.T, scenario coverageScenario) integrationConfig {
+	t.Helper()
+	cliPath := envDefault(agentEnvKey(scenario.agent, "CLI"), defaultCLI(scenario.agent))
+	if cliPath == "" {
+		t.Fatalf("CLI path is required for scenario %s agent %q", scenario.name, scenario.agent)
+	}
+	if _, err := exec.LookPath(cliPath); err != nil {
+		t.Fatalf("real agent CLI %q is not executable or not on PATH: %v", cliPath, err)
+	}
+	apiURL := protocolURL(t, scenario.protocol)
+	apiKey := os.Getenv("HELIOS_API_KEY")
+	if apiKey == "" && os.Getenv("HELIOS_ALLOW_EXISTING_AUTH") != "1" {
+		t.Skip("set HELIOS_API_KEY, or HELIOS_ALLOW_EXISTING_AUTH=1 when CLIs should use existing local auth")
+	}
+	timeout := integrationTimeout(t)
+	workDir := filepath.Join(t.TempDir(), "work")
+	runtimeHome := filepath.Join(t.TempDir(), "runtime-home")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("create scenario workdir: %v", err)
+	}
+	agent := helios.AgentSpec{
+		ID:           "integration-agent-" + scenario.name,
+		Type:         scenario.agent,
+		Name:         "Real CLI Integration " + scenario.name,
+		CLIPath:      cliPath,
+		DefaultModel: scenario.model,
+		APIURL:       apiURL,
+		APIToken:     apiKey,
+		RuntimeHome:  runtimeHome,
+		WorkDir:      workDir,
+	}
+	t.Logf("running coverage scenario=%s agent=%s cli=%s protocol=%s model=%s apiURL_set=%v", scenario.name, scenario.agent, cliPath, scenario.protocol, scenario.model, apiURL != "")
+	return integrationConfig{
+		agent:                    agent,
+		workDir:                  workDir,
+		runtimeHome:              runtimeHome,
+		prompt:                   envDefault("HELIOS_PROMPT", "Reply with exactly: helios-ok"),
+		expectContains:           envDefault("HELIOS_EXPECT_CONTAINS", "helios-ok"),
+		multimodalPrompt:         envDefault("HELIOS_MULTIMODAL_PROMPT", "The attached image is a single-color square. Reply with exactly one lowercase English word for its color."),
+		multimodalExpectContains: envDefault("HELIOS_MULTIMODAL_EXPECT_CONTAINS", "red"),
+		timeout:                  timeout,
+		expectMultimodalFailure:  scenario.mode == "multimodal_fail",
+	}
+}
+
+func protocolURL(t *testing.T, protocol string) string {
+	t.Helper()
+	switch protocol {
+	case "openai":
+		return envDefault("HELIOS_OPENAI_API_URL", os.Getenv("HELIOS_API_URL"))
+	case "anthropic":
+		return envDefault("HELIOS_ANTHROPIC_API_URL", os.Getenv("HELIOS_API_URL"))
+	default:
+		t.Fatalf("unknown protocol %q", protocol)
+		return ""
+	}
+}
+
+func integrationTimeout(t *testing.T) time.Duration {
+	t.Helper()
+	timeout := 2 * time.Minute
+	if raw := os.Getenv("HELIOS_TIMEOUT_SECONDS"); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds <= 0 {
+			t.Fatalf("HELIOS_TIMEOUT_SECONDS must be a positive integer, got %q", raw)
+		}
+		timeout = time.Duration(seconds) * time.Second
+	}
+	return timeout
+}
+
 func defaultCLI(agentType string) string {
 	switch agentType {
 	case "hermes":
@@ -282,6 +501,22 @@ func envDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func agentEnvKey(agentType string, suffix string) string {
+	return "HELIOS_" + strings.ToUpper(agentType) + "_" + suffix
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func assertOutput(t *testing.T, output string, expect string) {
