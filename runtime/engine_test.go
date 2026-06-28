@@ -67,13 +67,28 @@ func (failingStore) SaveSession(context.Context, SessionSnapshot) error {
 	return fmt.Errorf("store failed")
 }
 
+type cleanupAdapter struct {
+	testAdapter
+	stopped int
+}
+
+func (a *cleanupAdapter) StartSession(context.Context, SessionRequest) (*SessionHandle, error) {
+	return &SessionHandle{ID: "cleanup-session", Status: SessionRunning}, nil
+}
+
+func (a *cleanupAdapter) StopSession(context.Context, string) error {
+	a.stopped++
+	return nil
+}
+
 func TestEngineStrictEventSink(t *testing.T) {
 	ctx := context.Background()
+	adapter := &cleanupAdapter{}
 	reg := NewRegistry()
 	if err := reg.Register(AdapterMeta{
 		Type: "test",
 		Factory: func(AgentSpec) (Adapter, error) {
-			return testAdapter{}, nil
+			return adapter, nil
 		},
 	}); err != nil {
 		t.Fatalf("register: %v", err)
@@ -84,15 +99,22 @@ func TestEngineStrictEventSink(t *testing.T) {
 	if _, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-sink", Agent: AgentSpec{Type: "test"}}); err == nil {
 		t.Fatalf("strict sink should fail")
 	}
+	if adapter.stopped != 1 {
+		t.Fatalf("expected cleanup stop, got %d", adapter.stopped)
+	}
+	if _, err := engine.Diagnostics(ctx, "cleanup-session"); err == nil {
+		t.Fatalf("failed strict start should not leave active session")
+	}
 }
 
 func TestEngineStrictSessionStore(t *testing.T) {
 	ctx := context.Background()
+	adapter := &cleanupAdapter{}
 	reg := NewRegistry()
 	if err := reg.Register(AdapterMeta{
 		Type: "test",
 		Factory: func(AgentSpec) (Adapter, error) {
-			return testAdapter{}, nil
+			return adapter, nil
 		},
 	}); err != nil {
 		t.Fatalf("register: %v", err)
@@ -100,6 +122,9 @@ func TestEngineStrictSessionStore(t *testing.T) {
 	engine := NewEngine(reg, WithStrictSessionStore(), WithSessionStore(failingStore{}))
 	if _, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-store", Agent: AgentSpec{Type: "test"}}); err == nil {
 		t.Fatalf("strict store should fail")
+	}
+	if adapter.stopped != 1 {
+		t.Fatalf("expected cleanup stop, got %d", adapter.stopped)
 	}
 }
 

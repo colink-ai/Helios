@@ -112,6 +112,7 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 	e.sessionOf[handle.ID] = req
 	e.mu.Unlock()
 	if err := e.emit(ctx, eventWith(req, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
+		e.cleanupStartedSession(ctx, handle.ID, adapter)
 		return nil, err
 	}
 	if e.store != nil {
@@ -126,10 +127,19 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 			UpdatedAt:      time.Now().UTC(),
 		})
 		if err != nil && e.strictStore {
+			e.cleanupStartedSession(ctx, handle.ID, adapter)
 			return nil, err
 		}
 	}
 	return handle, nil
+}
+
+func (e *Engine) cleanupStartedSession(ctx context.Context, sessionID string, adapter Adapter) {
+	_ = adapter.StopSession(ctx, sessionID)
+	e.mu.Lock()
+	delete(e.sessions, sessionID)
+	delete(e.sessionOf, sessionID)
+	e.mu.Unlock()
 }
 
 // Prompt sends input to an active session and emits each normalized chunk.
