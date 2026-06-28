@@ -257,3 +257,9 @@ Store raw payloads when auditability or forward compatibility matters.
 These adapters provide SDK-level support and unit-tested configuration behavior.
 Real CLI compatibility should still be validated by each host application in its
 own environment, because installed CLI versions and protocol details can differ.
+
+## Project
+
+- License: [MIT](LICENSE)
+- Contributing guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
