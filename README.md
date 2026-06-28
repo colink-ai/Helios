@@ -140,6 +140,14 @@ go run ./cmd/helios-compat -agent hermes -cli hermes
 See [docs/compatibility.md](docs/compatibility.md) for the adapter matrix and
 release-gate checklist.
 
+## Examples
+
+Compile-ready examples live under `examples/`:
+
+- `examples/basic`: registry and event sink setup.
+- `examples/permissions`: host approval callback shape.
+- `examples/artifacts`: file artifact storage helper.
+
 ## Permission Flow
 
 When an agent asks for permission, Helios emits a semantic event:
