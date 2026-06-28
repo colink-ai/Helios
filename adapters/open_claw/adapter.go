@@ -17,6 +17,13 @@ type config struct {
 	gatewayURL  string
 	gatewayPort int
 	token       string
+	launcher    GatewayLauncher
+}
+
+// GatewayLauncher lets host applications provide or manage an OpenClaw gateway.
+type GatewayLauncher interface {
+	GatewayURL(req helios.SessionRequest) string
+	Env(req helios.SessionRequest) []string
 }
 
 func WithCLIPath(path string) Option {
@@ -35,36 +42,50 @@ func WithToken(token string) Option {
 	return func(c *config) { c.token = token }
 }
 
+func WithGatewayLauncher(launcher GatewayLauncher) Option {
+	return func(c *config) { c.launcher = launcher }
+}
+
 func NewAdapter(opts ...Option) helios.Adapter {
 	cfg := config{cliPath: "openclaw", gatewayPort: 26888}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	return acp.NewBaseAdapter(acp.Config{
-		CLIPath: cfg.cliPath,
-		BuildArgs: func(req helios.SessionRequest) []string {
-			sessionKey := req.SessionID
-			if sessionKey == "" {
-				sessionKey = helios.NewID("session")
-			}
-			url := cfg.gatewayURL
-			if url == "" {
-				url = fmt.Sprintf("ws://127.0.0.1:%d", cfg.gatewayPort)
-			}
-			args := []string{"acp", "--url", url, "--session", "agent:main:" + sessionKey}
-			if cfg.token != "" {
-				args = append(args, "--token", cfg.token)
-			}
-			return args
-		},
-		BuildEnv: func(helios.SessionRequest) []string {
-			env := []string{}
-			if cfg.gatewayPort > 0 {
-				env = append(env, "OPENCLAW_GATEWAY_PORT="+strconv.Itoa(cfg.gatewayPort))
-			}
-			return env
-		},
+		CLIPath:   cfg.cliPath,
+		BuildArgs: func(req helios.SessionRequest) []string { return buildArgs(cfg, req) },
+		BuildEnv:  func(req helios.SessionRequest) []string { return buildEnv(cfg, req) },
 	})
+}
+
+func buildArgs(cfg config, req helios.SessionRequest) []string {
+	sessionKey := req.SessionID
+	if sessionKey == "" {
+		sessionKey = helios.NewID("session")
+	}
+	url := cfg.gatewayURL
+	if cfg.launcher != nil {
+		url = cfg.launcher.GatewayURL(req)
+	}
+	if url == "" {
+		url = fmt.Sprintf("ws://127.0.0.1:%d", cfg.gatewayPort)
+	}
+	args := []string{"acp", "--url", url, "--session", "agent:main:" + sessionKey}
+	if cfg.token != "" {
+		args = append(args, "--token", cfg.token)
+	}
+	return args
+}
+
+func buildEnv(cfg config, req helios.SessionRequest) []string {
+	env := []string{}
+	if cfg.gatewayPort > 0 {
+		env = append(env, "OPENCLAW_GATEWAY_PORT="+strconv.Itoa(cfg.gatewayPort))
+	}
+	if cfg.launcher != nil {
+		env = append(env, cfg.launcher.Env(req)...)
+	}
+	return env
 }
 
 func Register(registry *helios.Registry, opts ...Option) error {
