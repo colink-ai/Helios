@@ -52,8 +52,8 @@ Useful environment variables:
 | `HELIOS_RUN_ONESHOT` | Set to `1` to also validate `Engine.Run`; resident session validation always runs. |
 | `HELIOS_ALLOW_EXISTING_AUTH` | Set to `1` when the CLI should use existing local auth instead of `HELIOS_API_KEY`. |
 
-To cover several foundation-agent adapters without running a full cartesian
-matrix, enable the explicit agent coverage suite:
+To cover built-in foundation-agent adapters across text and multimodal model
+settings, enable the agent coverage suite:
 
 ```bash
 HELIOS_INTEGRATION=1 \
@@ -67,12 +67,19 @@ HELIOS_TEXT_ONLY_MODEL=glm-5 \
 go test -tags=integration ./integration -run TestRealAgentCLIAgentCoverage
 ```
 
-By default this suite runs text scenarios for `hermes`, `open_code`, and
-`claude_code`; a positive multimodal scenario through `hermes`; multimodal
-bridge guard scenarios for `open_code` and `claude_code`; and a negative
-text-only-model multimodal scenario through `hermes` when `HELIOS_TEXT_ONLY_MODEL`
-is set. Override it with
-`HELIOS_AGENT_COVERAGE_SCENARIOS` when a release needs a different explicit
+By default this suite covers `hermes`, `open_code`, `claude_code`, and
+`open_claw`. For each adapter it runs the same contract:
+
+- `text`: the adapter must start a resident session and return the expected
+  text using `HELIOS_TEXT_MODEL`.
+- `multimodal`: when `HELIOS_MULTIMODAL_MODEL` is set, the adapter must deliver
+  the in-memory PNG to the agent and return the expected visual answer.
+- `multimodal_fail`: when `HELIOS_TEXT_ONLY_MODEL` is set, the same image prompt
+  must fail or avoid satisfying the visual assertion. This is only valid for
+  models that do not support image input.
+
+Override the generated scenario list with
+`HELIOS_AGENT_COVERAGE_SCENARIOS` when a release needs a narrower or different
 set:
 
 ```bash
@@ -81,8 +88,16 @@ HELIOS_AGENT_COVERAGE_SCENARIOS='hermes_text:hermes:openai:glm-5:text,hermes_vis
 
 Each scenario is `name:agent:protocol:model:mode`, where `protocol` is
 `openai` or `anthropic`, and `mode` is `text`, `multimodal`, or
-`multimodal_fail`. Per-agent CLI overrides use variables such as
+`multimodal_fail`. `text` and `multimodal` must succeed; `multimodal_fail`
+is only for models that do not support image input. Per-agent CLI overrides use
+variables such as
 `HELIOS_HERMES_CLI`, `HELIOS_OPEN_CODE_CLI`, and `HELIOS_CLAUDE_CODE_CLI`.
+
+OpenClaw's ACP CLI depends on a running OpenClaw Gateway. Point the integration
+suite at that gateway with `HELIOS_OPEN_CLAW_GATEWAY_URL`, or with
+`HELIOS_OPEN_CLAW_GATEWAY_PORT` when using the default local websocket URL.
+If the gateway requires a bridge token, provide it with
+`HELIOS_OPEN_CLAW_GATEWAY_TOKEN`; do not write that token into repository files.
 
 These tests are not included in default coverage numbers. They are release or
 environment checks for real CLI installation, credential wiring, network access,

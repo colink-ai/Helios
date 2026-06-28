@@ -62,6 +62,26 @@ func TestRegisterSpecCLIOverride(t *testing.T) {
 	}
 }
 
+func TestMetadataOptions(t *testing.T) {
+	meta := map[string]any{
+		"gatewayURL":   "ws://gateway",
+		"gatewayPort":  19999,
+		"gatewayToken": "token",
+	}
+	if value, ok := metadataString(meta, "gatewayURL"); !ok || value != "ws://gateway" {
+		t.Fatalf("unexpected gatewayURL: %q %v", value, ok)
+	}
+	if value, ok := metadataInt(meta, "gatewayPort"); !ok || value != 19999 {
+		t.Fatalf("unexpected gatewayPort: %d %v", value, ok)
+	}
+	if value, ok := metadataString(meta, "gatewayToken"); !ok || value != "token" {
+		t.Fatalf("unexpected gatewayToken: %q %v", value, ok)
+	}
+	if value, ok := metadataInt(map[string]any{"gatewayPort": "20000"}, "gatewayPort"); !ok || value != 20000 {
+		t.Fatalf("unexpected string gatewayPort: %d %v", value, ok)
+	}
+}
+
 type testLauncher struct{}
 
 func (testLauncher) GatewayURL(helios.SessionRequest) string { return "ws://gateway.test:9999" }

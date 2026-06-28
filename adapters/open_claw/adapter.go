@@ -99,7 +99,49 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			if spec.CLIPath != "" {
 				localOpts = append(localOpts, WithCLIPath(spec.CLIPath))
 			}
+			if url, ok := metadataString(spec.Metadata, "gatewayURL"); ok {
+				localOpts = append(localOpts, WithGatewayURL(url))
+			}
+			if port, ok := metadataInt(spec.Metadata, "gatewayPort"); ok {
+				localOpts = append(localOpts, WithGatewayPort(port))
+			}
+			if token, ok := metadataString(spec.Metadata, "gatewayToken"); ok {
+				localOpts = append(localOpts, WithToken(token))
+			}
 			return NewAdapter(localOpts...), nil
 		},
 	})
+}
+
+func metadataString(metadata map[string]any, key string) (string, bool) {
+	if metadata == nil {
+		return "", false
+	}
+	value, ok := metadata[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	return text, ok && text != ""
+}
+
+func metadataInt(metadata map[string]any, key string) (int, bool) {
+	if metadata == nil {
+		return 0, false
+	}
+	switch value := metadata[key].(type) {
+	case int:
+		return value, value > 0
+	case int32:
+		return int(value), value > 0
+	case int64:
+		return int(value), value > 0
+	case float64:
+		return int(value), value > 0
+	case string:
+		port, err := strconv.Atoi(value)
+		return port, err == nil && port > 0
+	default:
+		return 0, false
+	}
 }

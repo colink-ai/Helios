@@ -343,6 +343,7 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 		APIToken:     apiKey,
 		RuntimeHome:  runtimeHome,
 		WorkDir:      workDir,
+		Metadata:     agentMetadata(agentType),
 	}
 	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v workDir=%s runtimeHome=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", workDir, runtimeHome)
 	return integrationConfig{
@@ -386,28 +387,37 @@ func loadCoverageScenarios(t *testing.T) []coverageScenario {
 	if textModel == "" {
 		t.Fatalf("HELIOS_TEXT_MODEL or HELIOS_MODEL is required for agent coverage scenarios")
 	}
-	scenarios := []coverageScenario{
-		{name: "hermes_text", agent: "hermes", protocol: "openai", model: textModel, mode: "text"},
-		{name: "open_code_text", agent: "open_code", protocol: "openai", model: textModel, mode: "text"},
-		{name: "claude_code_text", agent: "claude_code", protocol: "anthropic", model: textModel, mode: "text"},
-	}
-	if multimodalModel != "" {
+	agents := []string{"hermes", "open_code", "claude_code", "open_claw"}
+	scenarios := make([]coverageScenario, 0, len(agents)*3)
+	for _, agent := range agents {
+		protocol := defaultProtocol(agent)
 		scenarios = append(scenarios, coverageScenario{
-			name: "hermes_multimodal_supported", agent: "hermes", protocol: "openai", model: multimodalModel, mode: "multimodal",
+			name:  agent + "_text",
+			agent: agent, protocol: protocol, model: textModel, mode: "text",
 		})
-		scenarios = append(scenarios, coverageScenario{
-			name: "open_code_multimodal_bridge", agent: "open_code", protocol: "openai", model: multimodalModel, mode: "multimodal_fail",
-		})
-		scenarios = append(scenarios, coverageScenario{
-			name: "claude_code_multimodal_bridge", agent: "claude_code", protocol: "anthropic", model: multimodalModel, mode: "multimodal_fail",
-		})
-	}
-	if textOnlyModel != "" {
-		scenarios = append(scenarios, coverageScenario{
-			name: "hermes_multimodal_unsupported", agent: "hermes", protocol: "openai", model: textOnlyModel, mode: "multimodal_fail",
-		})
+		if multimodalModel != "" {
+			scenarios = append(scenarios, coverageScenario{
+				name:  agent + "_multimodal_supported",
+				agent: agent, protocol: protocol, model: multimodalModel, mode: "multimodal",
+			})
+		}
+		if textOnlyModel != "" {
+			scenarios = append(scenarios, coverageScenario{
+				name:  agent + "_multimodal_unsupported",
+				agent: agent, protocol: protocol, model: textOnlyModel, mode: "multimodal_fail",
+			})
+		}
 	}
 	return scenarios
+}
+
+func defaultProtocol(agentType string) string {
+	switch agentType {
+	case "claude_code":
+		return "anthropic"
+	default:
+		return "openai"
+	}
 }
 
 func loadScenarioConfig(t *testing.T, scenario coverageScenario) integrationConfig {
@@ -440,6 +450,7 @@ func loadScenarioConfig(t *testing.T, scenario coverageScenario) integrationConf
 		APIToken:     apiKey,
 		RuntimeHome:  runtimeHome,
 		WorkDir:      workDir,
+		Metadata:     agentMetadata(scenario.agent),
 	}
 	t.Logf("running coverage scenario=%s agent=%s cli=%s protocol=%s model=%s apiURL_set=%v", scenario.name, scenario.agent, cliPath, scenario.protocol, scenario.model, apiURL != "")
 	return integrationConfig{
@@ -494,6 +505,26 @@ func defaultCLI(agentType string) string {
 	default:
 		return ""
 	}
+}
+
+func agentMetadata(agentType string) map[string]any {
+	if agentType != "open_claw" {
+		return nil
+	}
+	metadata := map[string]any{}
+	if value := os.Getenv("HELIOS_OPEN_CLAW_GATEWAY_URL"); value != "" {
+		metadata["gatewayURL"] = value
+	}
+	if value := os.Getenv("HELIOS_OPEN_CLAW_GATEWAY_PORT"); value != "" {
+		metadata["gatewayPort"] = value
+	}
+	if value := os.Getenv("HELIOS_OPEN_CLAW_GATEWAY_TOKEN"); value != "" {
+		metadata["gatewayToken"] = value
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
 }
 
 func envDefault(key, fallback string) string {
