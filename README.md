@@ -6,6 +6,19 @@ It provides runtime contracts, normalized event streams, adapter interfaces, and
 session orchestration primitives. It intentionally does not own application
 storage, tenancy, identity, billing, or product-specific data models.
 
+Helios sits between business applications and fast-moving foundation agents such
+as Hermes, OpenCode, Claude Code, OpenClaw, and future ACP-compatible runtimes.
+Its job is not to replace those agents. Its job is to make them safe, stable,
+observable, and portable enough to embed in real products.
+
+Business applications such as coding workspaces, operations assistants, customer
+support copilots, security workbenches, and internal automation tools usually
+want to own their own users, permissions, data, workflows, UI, audit trails, and
+database schema. They should not also have to chase every CLI protocol change,
+tool-call shape, session-resume detail, or streaming-output variant from every
+agent they integrate. Helios absorbs that runtime integration churn behind a
+stable semantic event layer.
+
 ## Design Principles
 
 - Keep the SDK database-free. Applications persist sessions, messages, runs, and
@@ -16,6 +29,31 @@ storage, tenancy, identity, billing, or product-specific data models.
   deployments.
 - Keep adapter interfaces stable enough for CLI agents, model runtimes, MCP
   tools, and future remote workers.
+- Keep foundation-agent compatibility inside adapter packages. The core runtime
+  event model should be small, stable, and application-oriented.
+- Preserve raw protocol metadata alongside normalized fields so applications can
+  adopt new agent capabilities without waiting for a core protocol change.
+
+## Positioning
+
+Helios is a runtime adapter layer for AI-native business applications.
+
+It is valuable when an application needs to embed mature external agents but
+still own product-level behavior: domain data, workflows, access control,
+storage, audit, collaboration, and UI. In that shape, Helios provides:
+
+- Process and session orchestration for embedded or split-worker deployments.
+- A stable runtime API over multiple foundation agents.
+- Normalized semantic events for messages, thinking, tool calls, questions,
+  usage, artifacts, handoffs, plans, and errors.
+- Adapter packages that track fast-moving agent protocols and CLI behavior.
+- Optional persistence interfaces that let applications store runtime state in
+  their own schema.
+
+Helios is not a low-code application builder, a tenant platform, a product UI
+framework, or a database abstraction. It is also not just a CLI wrapper. The
+core value is the stable semantic layer between business applications and
+changing agent runtimes.
 
 ## Package Layout
 

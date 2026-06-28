@@ -1,5 +1,7 @@
 package contracts
 
+import "encoding/json"
+
 // ChunkType describes a normalized streaming output chunk.
 type ChunkType string
 
@@ -51,17 +53,42 @@ type QuestionItem struct {
 	Options     []QuestionOption `json:"options,omitempty"`
 }
 
+// ContentBlock preserves structured tool or message content without forcing a
+// product-specific rendering model.
+type ContentBlock struct {
+	Type     string          `json:"type,omitempty"`
+	Text     string          `json:"text,omitempty"`
+	MimeType string          `json:"mimeType,omitempty"`
+	Data     string          `json:"data,omitempty"`
+	URL      string          `json:"url,omitempty"`
+	Raw      json.RawMessage `json:"raw,omitempty"`
+	Metadata map[string]any  `json:"metadata,omitempty"`
+}
+
+// PlanEntry is a runtime-level planning/status item emitted by an agent.
+type PlanEntry struct {
+	ID       string         `json:"id,omitempty"`
+	Content  string         `json:"content,omitempty"`
+	Status   string         `json:"status,omitempty"`
+	Priority int            `json:"priority,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 // Chunk is the normalized streaming unit emitted by adapters.
 type Chunk struct {
-	Type        ChunkType      `json:"type"`
-	Content     string         `json:"content,omitempty"`
-	ToolName    string         `json:"toolName,omitempty"`
-	ToolID      string         `json:"toolId,omitempty"`
-	ToolInput   map[string]any `json:"toolInput,omitempty"`
-	ToolIndex   int            `json:"toolIndex,omitempty"`
-	PartialJSON string         `json:"partialJson,omitempty"`
-	IsError     bool           `json:"isError,omitempty"`
-	Usage       *TokenUsage    `json:"usage,omitempty"`
-	Done        bool           `json:"done,omitempty"`
-	Questions   []QuestionItem `json:"questions,omitempty"`
+	Type             ChunkType       `json:"type"`
+	Content          string          `json:"content,omitempty"`
+	ToolName         string          `json:"toolName,omitempty"`
+	ToolID           string          `json:"toolId,omitempty"`
+	ToolInput        map[string]any  `json:"toolInput,omitempty"`
+	ToolIndex        int             `json:"toolIndex,omitempty"`
+	PartialJSON      string          `json:"partialJson,omitempty"`
+	IsError          bool            `json:"isError,omitempty"`
+	Usage            *TokenUsage     `json:"usage,omitempty"`
+	Done             bool            `json:"done,omitempty"`
+	Questions        []QuestionItem  `json:"questions,omitempty"`
+	ToolResultBlocks []ContentBlock  `json:"toolResultBlocks,omitempty"`
+	Plan             []PlanEntry     `json:"plan,omitempty"`
+	Raw              json.RawMessage `json:"raw,omitempty"`
+	Metadata         map[string]any  `json:"metadata,omitempty"`
 }
