@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,8 +18,9 @@ import (
 )
 
 const (
-	defaultStartupTimeout = 45 * time.Second
-	defaultPromptTimeout  = 30 * time.Minute
+	defaultStartupTimeout  = 45 * time.Second
+	defaultPromptTimeout   = 30 * time.Minute
+	defaultProtocolVersion = 1
 )
 
 type Config struct {
@@ -27,6 +29,7 @@ type Config struct {
 	BuildEnv             func(helios.SessionRequest) []string
 	ConfigureModelViaACP bool
 	ModelRef             func(helios.SessionRequest) string
+	ProtocolVersion      int
 	StartupTimeout       time.Duration
 	PromptTimeout        time.Duration
 }
@@ -145,7 +148,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	}
 
 	initResult, err := t.sendRequest(startCtx, "initialize", InitializeParams{
-		ProtocolVersion:    2025,
+		ProtocolVersion:    a.protocolVersion(),
 		ClientCapabilities: map[string]any{},
 	})
 	if err != nil {
@@ -340,7 +343,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 	defer a.teardown("", s)
 
 	initResult, err := t.sendRequest(startCtx, "initialize", InitializeParams{
-		ProtocolVersion:    2025,
+		ProtocolVersion:    a.protocolVersion(),
 		ClientCapabilities: map[string]any{},
 	})
 	if err != nil {
@@ -778,6 +781,13 @@ func (a *BaseAdapter) startupTimeout() time.Duration {
 	return defaultStartupTimeout
 }
 
+func (a *BaseAdapter) protocolVersion() int {
+	if a.config.ProtocolVersion > 0 {
+		return a.config.ProtocolVersion
+	}
+	return defaultProtocolVersion
+}
+
 func (a *BaseAdapter) promptTimeout() time.Duration {
 	if a.config.PromptTimeout != 0 {
 		return a.config.PromptTimeout
@@ -927,25 +937,32 @@ func ConvertMCPServers(specs []helios.MCPServerSpec) []any {
 			}
 			item["type"] = spec.Type
 			item["url"] = spec.URL
-			if len(spec.Headers) > 0 {
-				item["headers"] = spec.Headers
-			}
+			item["headers"] = nameValueList(spec.Headers)
 		case "stdio":
 			if spec.Command == "" {
 				continue
 			}
 			item["type"] = "stdio"
 			item["command"] = spec.Command
-			if len(spec.Args) > 0 {
-				item["args"] = spec.Args
-			}
-			if len(spec.Env) > 0 {
-				item["env"] = spec.Env
-			}
+			item["args"] = spec.Args
+			item["env"] = nameValueList(spec.Env)
 		default:
 			continue
 		}
 		out = append(out, item)
+	}
+	return out
+}
+
+func nameValueList(values map[string]string) []map[string]string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]map[string]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, map[string]string{"name": key, "value": values[key]})
 	}
 	return out
 }

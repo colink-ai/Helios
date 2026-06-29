@@ -18,19 +18,33 @@ func TestConvertMCPServers(t *testing.T) {
 	servers := ConvertMCPServers([]helios.MCPServerSpec{
 		{Name: "search", Type: "http", URL: "http://127.0.0.1:9000/mcp", Headers: map[string]string{"Authorization": "Bearer token"}},
 		{Name: "fs", Type: "stdio", Command: "mcp-fs", Args: []string{"."}, Env: map[string]string{"A": "B"}},
+		{Name: "no-headers", Type: "http", URL: "http://127.0.0.1:9100/mcp"},
 		{Name: "bad-http", Type: "http"},
 		{Name: "unknown", Type: "weird"},
 	})
-	if len(servers) != 2 {
-		t.Fatalf("servers len = %d, want 2: %+v", len(servers), servers)
+	if len(servers) != 3 {
+		t.Fatalf("servers len = %d, want 3: %+v", len(servers), servers)
 	}
 	first := servers[0].(map[string]any)
 	if first["name"] != "search" || first["type"] != "http" || first["url"] == "" {
 		t.Fatalf("unexpected http server: %+v", first)
 	}
+	headers, ok := first["headers"].([]map[string]string)
+	if !ok || len(headers) != 1 || headers[0]["name"] != "Authorization" || headers[0]["value"] != "Bearer token" {
+		t.Fatalf("unexpected http headers: %+v", first["headers"])
+	}
 	second := servers[1].(map[string]any)
 	if second["name"] != "fs" || second["type"] != "stdio" || second["command"] != "mcp-fs" {
 		t.Fatalf("unexpected stdio server: %+v", second)
+	}
+	env, ok := second["env"].([]map[string]string)
+	if !ok || len(env) != 1 || env[0]["name"] != "A" || env[0]["value"] != "B" {
+		t.Fatalf("unexpected stdio env: %+v", second["env"])
+	}
+	third := servers[2].(map[string]any)
+	emptyHeaders, ok := third["headers"].([]map[string]string)
+	if !ok || len(emptyHeaders) != 0 {
+		t.Fatalf("unexpected empty http headers: %+v", third["headers"])
 	}
 }
 

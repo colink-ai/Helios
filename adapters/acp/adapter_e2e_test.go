@@ -325,7 +325,7 @@ func TestBaseAdapterDetectCapabilitiesE2E(t *testing.T) {
 	if !capabilities.NativeResume || !capabilities.SessionLoad || !capabilities.Usage || !capabilities.Plans || !capabilities.Artifacts || !capabilities.Questions || !capabilities.Multimodal {
 		t.Fatalf("unexpected capabilities: %+v", capabilities)
 	}
-	if capabilities.Metadata["protocolVersion"] != 2025 {
+	if capabilities.Metadata["protocolVersion"] != 1 {
 		t.Fatalf("unexpected metadata: %+v", capabilities.Metadata)
 	}
 }
@@ -510,7 +510,7 @@ func runFakeACPAgent() {
 		switch req.Method {
 		case "initialize":
 			writeFakeResult(writer, req.ID, map[string]any{
-				"protocolVersion": 2025,
+				"protocolVersion": 1,
 				"agentCapabilities": map[string]any{
 					"sessionResume": true,
 					"sessionLoad":   true,
