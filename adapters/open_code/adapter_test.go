@@ -13,7 +13,7 @@ func TestBuildConfigContent(t *testing.T) {
 		DefaultModel: "qwen-plus",
 		APIURL:       "https://model.test/v1",
 		APIToken:     "secret",
-	})
+	}, "")
 	if content == "" {
 		t.Fatalf("content is empty")
 	}
@@ -31,15 +31,29 @@ func TestBuildConfigContent(t *testing.T) {
 	if !provider.Models["qwen-plus"].Attachment {
 		t.Fatalf("model should support attachments")
 	}
+	if cfg.Permission != nil {
+		t.Fatalf("permission should not default to allow: %+v", cfg.Permission)
+	}
 }
 
 func TestBuildConfigContentEmptyAndAPIOnly(t *testing.T) {
-	if got := buildConfigContent(helios.AgentSpec{}); got != "" {
+	if got := buildConfigContent(helios.AgentSpec{}, ""); got != "" {
 		t.Fatalf("empty spec content = %q", got)
 	}
-	content := buildConfigContent(helios.AgentSpec{APIURL: "https://model.test/v1"})
+	content := buildConfigContent(helios.AgentSpec{APIURL: "https://model.test/v1"}, "")
 	if content == "" || !strings.Contains(content, "https://model.test/v1") {
 		t.Fatalf("unexpected API-only content: %s", content)
+	}
+}
+
+func TestBuildConfigContentPermissionMode(t *testing.T) {
+	content := buildConfigContent(helios.AgentSpec{DefaultModel: "qwen-plus"}, "allow")
+	var cfg openCodeConfig
+	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if cfg.Permission != "allow" {
+		t.Fatalf("permission = %#v", cfg.Permission)
 	}
 }
 
@@ -48,7 +62,7 @@ func TestBuildEnv(t *testing.T) {
 	env := strings.Join(buildEnv(helios.SessionRequest{
 		WorkDir: workDir,
 		Agent:   helios.AgentSpec{DefaultModel: "qwen-plus"},
-	}), "\n")
+	}, config{}), "\n")
 	for _, want := range []string{"OPENCODE_PURE=1", "OPENCODE_ENABLE_QUESTION_TOOL=1", "OPENCODE_CONFIG_DIR=", "OPENCODE_CONFIG_CONTENT="} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env missing %q: %s", want, env)
@@ -78,11 +92,22 @@ func TestOptionsAndNewAdapter(t *testing.T) {
 	cfg := config{}
 	WithCLIPath("custom")(&cfg)
 	WithHTTPPort(7777)(&cfg)
-	if cfg.cliPath != "custom" || cfg.port != 7777 {
+	WithPermissionMode("allow")(&cfg)
+	if cfg.cliPath != "custom" || cfg.port != 7777 || cfg.permissionMode != "allow" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 	if adapter := NewAdapter(WithCLIPath("custom"), WithHTTPPort(7777)); adapter == nil {
 		t.Fatalf("adapter is nil")
+	}
+}
+
+func TestMetadataOptions(t *testing.T) {
+	meta := map[string]any{"httpPort": "9191", "permission": "ask"}
+	if value, ok := metadataInt(meta, "httpPort"); !ok || value != 9191 {
+		t.Fatalf("unexpected httpPort: %d %v", value, ok)
+	}
+	if value, ok := metadataString(meta, "permission"); !ok || value != "ask" {
+		t.Fatalf("unexpected permission: %q %v", value, ok)
 	}
 }
 

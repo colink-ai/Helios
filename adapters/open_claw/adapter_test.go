@@ -48,6 +48,19 @@ func TestBuildArgsDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildArgsResumeSession(t *testing.T) {
+	args := buildArgs(config{gatewayPort: 26888}, helios.SessionRequest{SessionID: "new", ResumeSessionID: "resume"})
+	got := strings.Join(args, " ")
+	if !strings.Contains(got, "agent:main:resume") || strings.Contains(got, "agent:main:new") {
+		t.Fatalf("unexpected resume args: %v", args)
+	}
+	args = buildArgs(config{gatewayPort: 26888}, helios.SessionRequest{ResumeSessionID: "agent:main:stored"})
+	got = strings.Join(args, " ")
+	if !strings.Contains(got, "agent:main:stored") || strings.Contains(got, "agent:main:agent:") {
+		t.Fatalf("unexpected full resume args: %v", args)
+	}
+}
+
 func TestRegisterSpecCLIOverride(t *testing.T) {
 	reg := helios.NewRegistry()
 	if err := Register(reg, WithCLIPath("default")); err != nil {

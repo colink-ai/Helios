@@ -118,6 +118,9 @@ func TestOptionsAndHelpers(t *testing.T) {
 	if got := quote("line\nquote\""); got != `"line\nquote\""` {
 		t.Fatalf("quote = %q", got)
 	}
+	if got := quote("carriage\rtab\t"); got != `"carriage\rtab\t"` {
+		t.Fatalf("quote control chars = %q", got)
+	}
 }
 
 func TestRegister(t *testing.T) {

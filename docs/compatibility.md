@@ -99,6 +99,12 @@ suite at that gateway with `HELIOS_OPEN_CLAW_GATEWAY_URL`, or with
 If the gateway requires a bridge token, provide it with
 `HELIOS_OPEN_CLAW_GATEWAY_TOKEN`; do not write that token into repository files.
 
+Adapter-specific runtime metadata can also configure built-in adapters without
+new SDK types. OpenCode accepts `AgentSpec.Metadata["httpPort"]` and
+`AgentSpec.Metadata["permission"]`. OpenClaw accepts
+`AgentSpec.Metadata["gatewayURL"]`, `AgentSpec.Metadata["gatewayPort"]`, and
+`AgentSpec.Metadata["gatewayToken"]`.
+
 These tests are not included in default coverage numbers. They are release or
 environment checks for real CLI installation, credential wiring, network access,
 and model-provider behavior.
@@ -118,10 +124,10 @@ and model-provider behavior.
 
 | Adapter | SDK coverage | Real CLI check |
 | --- | --- | --- |
-| `hermes` | Config rendering, ACP session flow, event normalization. | Verify installed `hermes acp` protocol behavior. |
-| `open_code` | Config injection, pure mode, ACP question tool setup. | Verify installed `opencode` ACP bridge and model config. |
+| `hermes` | Config rendering, ACP session flow, event normalization. | Verify installed `hermes acp` protocol behavior and protect generated `HERMES_HOME` config. |
+| `open_code` | Config injection, pure mode, ACP question tool setup, configurable permission mode. | Verify installed `opencode` ACP bridge, model config, and permission behavior. |
 | `claude_code` | `claude-agent-acp` environment wiring. | Verify installed bridge version and auth environment. |
-| `open_claw` | ACP bridge argument construction. | Verify gateway URL, token, and bridge lifecycle. |
+| `open_claw` | ACP bridge argument construction and resume session key selection. | Verify gateway URL, token, bridge lifecycle, and resume mapping. |
 
 ## Recommended Release Gate
 

@@ -19,7 +19,20 @@ func (a nativeRunAdapter) Run(_ context.Context, _ RunRequest, onChunk ChunkHand
 		return nil, fmt.Errorf("native failed")
 	}
 	onChunk(contracts.Chunk{Type: contracts.ChunkText, Content: "native chunk"})
-	return &RunResult{Output: "native ok", SessionID: "native-session"}, nil
+	return &RunResult{Output: "native ok", SessionID: "agent-native-session"}, nil
+}
+
+type streamingNativeRunAdapter struct {
+	testAdapter
+	observed func() int
+}
+
+func (a streamingNativeRunAdapter) Run(_ context.Context, _ RunRequest, onChunk ChunkHandler) (*RunResult, error) {
+	onChunk(contracts.Chunk{Type: contracts.ChunkText, Content: "streamed"})
+	if a.observed() < 2 {
+		return nil, fmt.Errorf("chunk was not emitted before native Run returned")
+	}
+	return &RunResult{Output: "ok"}, nil
 }
 
 type failingPromptAdapter struct {
@@ -339,14 +352,42 @@ func TestEngineRunNative(t *testing.T) {
 	if len(events) != 5 {
 		t.Fatalf("unexpected events: %+v", events)
 	}
-	if events[1].Type != contracts.EventSessionStarted || events[1].SessionID != "native-session" {
+	sessionID := result.SessionID
+	if sessionID == "" {
+		t.Fatalf("native run should fill result session id")
+	}
+	if result.AgentSessionID != "agent-native-session" {
+		t.Fatalf("native adapter session id should be preserved as agent session id: %+v", result)
+	}
+	if events[1].Type != contracts.EventSessionStarted || events[1].SessionID != sessionID {
 		t.Fatalf("native run should emit session start with session id: %+v", events)
 	}
-	if events[2].Chunk.Content != "native chunk" || events[2].SessionID != "native-session" {
+	if events[2].Chunk.Content != "native chunk" || events[2].SessionID != sessionID {
 		t.Fatalf("native chunk should include session id: %+v", events)
 	}
-	if events[3].Type != contracts.EventSessionStopped || events[4].Type != contracts.EventRunCompleted || events[4].SessionID != "native-session" {
+	if events[3].Type != contracts.EventSessionStopped || events[4].Type != contracts.EventRunCompleted || events[4].SessionID != sessionID {
 		t.Fatalf("native run should emit stop and completion with session id: %+v", events)
+	}
+}
+
+func TestEngineRunNativeStreamsBeforeReturn(t *testing.T) {
+	ctx := context.Background()
+	var events []contracts.RunEvent
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "native-streaming",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return streamingNativeRunAdapter{observed: func() int { return len(events) }}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg, WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		events = append(events, event)
+		return nil
+	})))
+	if _, err := engine.Run(ctx, RunRequest{RunID: "run-native-streaming", Agent: AgentSpec{Type: "native-streaming"}}); err != nil {
+		t.Fatalf("run: %v", err)
 	}
 }
 

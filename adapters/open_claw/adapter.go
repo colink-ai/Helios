@@ -3,6 +3,7 @@ package open_claw
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/colink-ai/helios/adapters/acp"
 	helios "github.com/colink-ai/helios/runtime"
@@ -59,10 +60,7 @@ func NewAdapter(opts ...Option) helios.Adapter {
 }
 
 func buildArgs(cfg config, req helios.SessionRequest) []string {
-	sessionKey := req.SessionID
-	if sessionKey == "" {
-		sessionKey = helios.NewID("session")
-	}
+	sessionKey := openClawSessionKey(req)
 	url := cfg.gatewayURL
 	if cfg.launcher != nil {
 		url = cfg.launcher.GatewayURL(req)
@@ -70,11 +68,25 @@ func buildArgs(cfg config, req helios.SessionRequest) []string {
 	if url == "" {
 		url = fmt.Sprintf("ws://127.0.0.1:%d", cfg.gatewayPort)
 	}
-	args := []string{"acp", "--url", url, "--session", "agent:main:" + sessionKey}
+	args := []string{"acp", "--url", url, "--session", sessionKey}
 	if cfg.token != "" {
 		args = append(args, "--token", cfg.token)
 	}
 	return args
+}
+
+func openClawSessionKey(req helios.SessionRequest) string {
+	sessionKey := req.ResumeSessionID
+	if sessionKey == "" {
+		sessionKey = req.SessionID
+	}
+	if sessionKey == "" {
+		sessionKey = helios.NewID("session")
+	}
+	if strings.HasPrefix(sessionKey, "agent:") {
+		return sessionKey
+	}
+	return "agent:main:" + sessionKey
 }
 
 func buildEnv(cfg config, req helios.SessionRequest) []string {

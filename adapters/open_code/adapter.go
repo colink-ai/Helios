@@ -18,8 +18,9 @@ const (
 type Option func(*config)
 
 type config struct {
-	cliPath string
-	port    int
+	cliPath        string
+	port           int
+	permissionMode string
 }
 
 func WithCLIPath(path string) Option {
@@ -28,6 +29,10 @@ func WithCLIPath(path string) Option {
 
 func WithHTTPPort(port int) Option {
 	return func(c *config) { c.port = port }
+}
+
+func WithPermissionMode(mode string) Option {
+	return func(c *config) { c.permissionMode = mode }
 }
 
 func NewAdapter(opts ...Option) helios.Adapter {
@@ -45,7 +50,7 @@ func NewAdapter(opts ...Option) helios.Adapter {
 			return args
 		},
 		BuildEnv: func(req helios.SessionRequest) []string {
-			return buildEnv(req)
+			return buildEnv(req, cfg)
 		},
 	})
 }
@@ -61,19 +66,25 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			if spec.CLIPath != "" {
 				localOpts = append(localOpts, WithCLIPath(spec.CLIPath))
 			}
+			if port, ok := metadataInt(spec.Metadata, "httpPort"); ok {
+				localOpts = append(localOpts, WithHTTPPort(port))
+			}
+			if mode, ok := metadataString(spec.Metadata, "permission"); ok {
+				localOpts = append(localOpts, WithPermissionMode(mode))
+			}
 			return NewAdapter(localOpts...), nil
 		},
 	})
 }
 
-func buildEnv(req helios.SessionRequest) []string {
+func buildEnv(req helios.SessionRequest, cfg config) []string {
 	env := []string{"OPENCODE_PURE=1", "OPENCODE_ENABLE_QUESTION_TOOL=1"}
 	configDir := configDir(req)
 	if configDir != "" {
 		_ = os.MkdirAll(configDir, 0o755)
 		env = append(env, "OPENCODE_CONFIG_DIR="+configDir)
 	}
-	if content := buildConfigContent(req.Agent); content != "" {
+	if content := buildConfigContent(req.Agent, cfg.permissionMode); content != "" {
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+content)
 	}
 	return env
@@ -95,7 +106,7 @@ func configDir(req helios.SessionRequest) string {
 	return ""
 }
 
-func buildConfigContent(spec helios.AgentSpec) string {
+func buildConfigContent(spec helios.AgentSpec, permissionMode string) string {
 	if spec.APIURL == "" && spec.APIToken == "" && spec.DefaultModel == "" {
 		return ""
 	}
@@ -110,7 +121,9 @@ func buildConfigContent(spec helios.AgentSpec) string {
 				},
 			},
 		},
-		Permission: "allow",
+	}
+	if permissionMode != "" {
+		cfg.Permission = permissionMode
 	}
 	if spec.DefaultModel != "" {
 		provider := cfg.Provider[providerID]
@@ -133,6 +146,39 @@ func buildConfigContent(spec helios.AgentSpec) string {
 		return ""
 	}
 	return string(data)
+}
+
+func metadataString(metadata map[string]any, key string) (string, bool) {
+	if metadata == nil {
+		return "", false
+	}
+	value, ok := metadata[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	return text, ok && text != ""
+}
+
+func metadataInt(metadata map[string]any, key string) (int, bool) {
+	if metadata == nil {
+		return 0, false
+	}
+	switch value := metadata[key].(type) {
+	case int:
+		return value, value > 0
+	case int32:
+		return int(value), value > 0
+	case int64:
+		return int(value), value > 0
+	case float64:
+		return int(value), value > 0
+	case string:
+		port, err := strconv.Atoi(value)
+		return port, err == nil && port > 0
+	default:
+		return 0, false
+	}
 }
 
 type openCodeConfig struct {

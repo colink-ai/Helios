@@ -201,6 +201,19 @@ Applications remain responsible for user policy, audit, and approval UI. Helios
 only normalizes the runtime request and transports the decision back to the
 adapter.
 
+Adapter defaults should not silently bypass host approval. OpenCode keeps its
+own permission default unless the host explicitly sets
+`AgentSpec.Metadata["permission"]` or uses `open_code.WithPermissionMode`.
+
+## Security Notes
+
+Helios does not persist API keys or write them to an application database.
+Built-in CLI adapters still pass credentials to child processes in the form
+those CLIs accept: for example environment variables, generated runtime config,
+or process arguments for local bridge tokens. Host applications should protect
+runtime home directories, process environments, logs, and diagnostics with the
+same care as other secret-bearing infrastructure.
+
 ## Artifact Flow
 
 Agents can emit `artifact.created` events. Applications may store artifacts in
@@ -290,9 +303,9 @@ Store raw payloads when auditability or forward compatibility matters.
 | Adapter | Runtime mode | Notes |
 | --- | --- | --- |
 | `hermes` | ACP resident and one-shot | Generates `HERMES_HOME/config.yaml` from `AgentSpec` and MCP server specs. |
-| `open_code` | ACP resident and one-shot | Injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. |
+| `open_code` | ACP resident and one-shot | Injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. Permission mode is host-configurable and is not forced to `allow` by default. |
 | `claude_code` | ACP resident and one-shot | Uses `claude-agent-acp` as the default CLI and maps API token/base URL to environment variables. |
-| `open_claw` | ACP resident and one-shot | Builds OpenClaw ACP bridge arguments for an existing gateway endpoint. Gateway lifecycle management belongs to the host application for now. |
+| `open_claw` | ACP resident and one-shot | Builds OpenClaw ACP bridge arguments for an existing gateway endpoint. Gateway lifecycle management belongs to the host application for now; resume prefers `ResumeSessionID` when provided. |
 
 These adapters provide SDK-level support and unit-tested configuration behavior.
 Real CLI compatibility should still be validated by each host application in its
