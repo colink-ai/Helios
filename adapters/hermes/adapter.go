@@ -59,10 +59,7 @@ func Register(registry *helios.Registry, opts ...Option) error {
 }
 
 func runtimeHome(req helios.SessionRequest) string {
-	if req.RuntimeHome != "" {
-		return req.RuntimeHome
-	}
-	return req.Agent.RuntimeHome
+	return helios.EffectiveRuntimeHome(req)
 }
 
 func buildEnv(home string, spec helios.AgentSpec) []string {

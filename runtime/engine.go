@@ -304,13 +304,14 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if native, ok := adapter.(RunAdapter); ok {
 		sessionID := NewID("session")
 		sessionReq := SessionRequest{
-			RunID:       runID,
-			SessionID:   sessionID,
-			Agent:       req.Agent,
-			WorkDir:     req.WorkDir,
-			RuntimeHome: req.RuntimeHome,
-			MCPServers:  req.MCPServers,
-			Metadata:    req.Metadata,
+			RunID:             runID,
+			SessionID:         sessionID,
+			Agent:             req.Agent,
+			WorkDir:           req.WorkDir,
+			RuntimeConfigMode: req.RuntimeConfigMode,
+			RuntimeHome:       req.RuntimeHome,
+			MCPServers:        req.MCPServers,
+			Metadata:          req.Metadata,
 		}
 		if err := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
 			return nil, err
@@ -344,13 +345,14 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 
 	sessionID := NewID("session")
 	handle, err := e.StartSession(ctx, SessionRequest{
-		RunID:       runID,
-		SessionID:   sessionID,
-		Agent:       req.Agent,
-		WorkDir:     req.WorkDir,
-		RuntimeHome: req.RuntimeHome,
-		MCPServers:  req.MCPServers,
-		Metadata:    req.Metadata,
+		RunID:             runID,
+		SessionID:         sessionID,
+		Agent:             req.Agent,
+		WorkDir:           req.WorkDir,
+		RuntimeConfigMode: req.RuntimeConfigMode,
+		RuntimeHome:       req.RuntimeHome,
+		MCPServers:        req.MCPServers,
+		Metadata:          req.Metadata,
 	})
 	if err != nil {
 		return nil, err

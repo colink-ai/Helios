@@ -94,6 +94,11 @@ func TestRuntimeHomePrecedence(t *testing.T) {
 	if got := runtimeHome(req); got != "" {
 		t.Fatalf("runtimeHome empty = %q", got)
 	}
+	req.WorkDir = "work"
+	req.RuntimeConfigMode = helios.RuntimeConfigUser
+	if got := runtimeHome(req); got != "" {
+		t.Fatalf("user config mode should not set runtime home, got %q", got)
+	}
 }
 
 func TestOptionsAndHelpers(t *testing.T) {

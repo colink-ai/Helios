@@ -173,6 +173,76 @@ ACP adapters expose the lower-level session metadata through
 whether native resume was used. Applications can store that metadata in their
 own schema and pass it back through `runtime.SessionRequest.ResumeSessionID`.
 
+## Runtime Configuration Modes
+
+Helios separates an agent process working directory from the agent's own
+configuration home. Host applications can choose either mode per product,
+tenant, domain, workspace, or session.
+
+### Isolated Config Mode
+
+Use isolated mode when the host application needs deterministic, auditable, or
+tenant-safe runtime state. This is the recommended default for multi-tenant
+products, enterprise apps, shared servers, and governed workflows.
+
+Pass `RuntimeHome` directly, or derive it with `runtime.RuntimeProfile`:
+
+```go
+paths := runtime.RuntimeProfile{
+    ConfigMode:  runtime.RuntimeConfigIsolated,
+    RuntimeRoot: "/var/lib/my-app/agent-runtime",
+}.Resolve("support-domain")
+
+handle, err := engine.StartSession(ctx, runtime.SessionRequest{
+    SessionID:         "session-123",
+    RuntimeConfigMode: paths.ConfigMode,
+    RuntimeHome:       paths.RuntimeHome,
+    WorkDir:           paths.WorkDir,
+    Agent: runtime.AgentSpec{
+        Type:         "hermes",
+        CLIPath:      "hermes",
+        DefaultModel: "qwen-plus",
+        APIURL:       "https://model.example/v1",
+        APIToken:     token,
+    },
+})
+```
+
+For Hermes, isolated mode writes `RuntimeHome/config.yaml` and sets
+`HERMES_HOME=RuntimeHome`. For OpenCode, it sets
+`OPENCODE_CONFIG_DIR=RuntimeHome/opencode`. Other adapters use the fields that
+their underlying CLI supports.
+
+### User Config Mode
+
+Use user config mode when a local or personal application should reuse the
+user's existing CLI login and default configuration. In this mode Helios does
+not set an agent config home; the underlying CLI can use its normal user-level
+state, such as `~/.hermes` or its own authenticated profile.
+
+```go
+paths := runtime.RuntimeProfile{
+    ConfigMode: runtime.RuntimeConfigUser,
+    WorkDir:    "/tmp/my-app/session-123",
+}.Resolve("")
+
+handle, err := engine.StartSession(ctx, runtime.SessionRequest{
+    RuntimeConfigMode: paths.ConfigMode,
+    RuntimeHome:       paths.RuntimeHome, // intentionally empty
+    WorkDir:           paths.WorkDir,
+    Agent: runtime.AgentSpec{
+        Type:    "hermes",
+        CLIPath: "hermes",
+    },
+})
+```
+
+If no `RuntimeHome`, `RuntimeRoot`, or `WorkDir` is supplied, Helios infers user
+config mode. If a host passes `WorkDir` for backward compatibility, Helios
+infers isolated mode unless `RuntimeConfigMode` is explicitly set to
+`runtime.RuntimeConfigUser`. This lets an application keep an isolated working
+directory while still reusing the user's CLI config.
+
 ## Quick Start
 
 ```go
@@ -218,6 +288,25 @@ For local CLI probes, use:
 
 ```bash
 go run ./cmd/helios-compat -agent hermes -cli hermes
+```
+
+To validate isolated config mode:
+
+```bash
+go run ./cmd/helios-compat \
+  -agent hermes \
+  -cli hermes \
+  -runtime-config-mode isolated \
+  -runtime-home /tmp/helios-hermes-home
+```
+
+To validate user config mode against an already-authenticated local CLI:
+
+```bash
+go run ./cmd/helios-compat \
+  -agent hermes \
+  -cli hermes \
+  -runtime-config-mode user
 ```
 
 For real CLI + real API key integration tests, use the `integration` build tag:
@@ -364,9 +453,9 @@ Store raw payloads when auditability or forward compatibility matters.
 
 | Adapter | Runtime mode | Notes |
 | --- | --- | --- |
-| `hermes` | ACP resident and one-shot | Generates `HERMES_HOME/config.yaml` from `AgentSpec` and MCP server specs. |
-| `open_code` | ACP resident and one-shot | Injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. Permission mode is host-configurable and is not forced to `allow` by default. |
-| `claude_code` | ACP resident and one-shot | Uses `claude-agent-acp` as the default CLI and maps API token/base URL to environment variables. |
+| `hermes` | ACP resident and one-shot | In isolated mode, generates `HERMES_HOME/config.yaml` from `AgentSpec` and MCP server specs. In user config mode, leaves `HERMES_HOME` unset so Hermes can use its user-level config. |
+| `open_code` | ACP resident and one-shot | In isolated mode, injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. In user config mode, leaves `OPENCODE_CONFIG_DIR` unset. Permission mode is host-configurable and is not forced to `allow` by default. |
+| `claude_code` | ACP resident and one-shot | Uses `claude-agent-acp` as the default CLI and maps API token/base URL to environment variables. Runtime config mode currently does not override a Claude config directory. |
 | `open_claw` | ACP resident and one-shot | Builds OpenClaw ACP bridge arguments for an existing gateway endpoint. Gateway lifecycle management belongs to the host application for now; resume prefers `ResumeSessionID` when provided. |
 
 These adapters provide SDK-level support and unit-tested configuration behavior.

@@ -83,6 +83,9 @@ func TestConfigDirPrecedence(t *testing.T) {
 	if got := configDir(helios.SessionRequest{Agent: helios.AgentSpec{WorkDir: "/agent-work"}}); got != "/agent-work/.opencode" {
 		t.Fatalf("agent work dir = %q", got)
 	}
+	if got := configDir(helios.SessionRequest{RuntimeConfigMode: helios.RuntimeConfigUser, WorkDir: "/work"}); got != "" {
+		t.Fatalf("user config mode should not set config dir, got %q", got)
+	}
 	if got := configDir(helios.SessionRequest{}); got != "" {
 		t.Fatalf("empty dir = %q", got)
 	}

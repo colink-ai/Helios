@@ -15,6 +15,7 @@ type AgentSpec struct {
 	DefaultModel       string            `json:"defaultModel,omitempty"`
 	APIURL             string            `json:"apiUrl,omitempty"`
 	APIToken           string            `json:"apiToken,omitempty"`
+	RuntimeConfigMode  RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
 	RuntimeHome        string            `json:"runtimeHome,omitempty"`
 	WorkDir            string            `json:"workDir,omitempty"`
 	SystemPrompt       string            `json:"systemPrompt,omitempty"`
@@ -37,14 +38,15 @@ type MCPServerSpec struct {
 
 // SessionRequest starts or resumes an interactive agent session.
 type SessionRequest struct {
-	RunID           string          `json:"runId,omitempty"`
-	SessionID       string          `json:"sessionId,omitempty"`
-	Agent           AgentSpec       `json:"agent"`
-	WorkDir         string          `json:"workDir,omitempty"`
-	RuntimeHome     string          `json:"runtimeHome,omitempty"`
-	MCPServers      []MCPServerSpec `json:"mcpServers,omitempty"`
-	ResumeSessionID string          `json:"resumeSessionId,omitempty"`
-	Metadata        map[string]any  `json:"metadata,omitempty"`
+	RunID             string            `json:"runId,omitempty"`
+	SessionID         string            `json:"sessionId,omitempty"`
+	Agent             AgentSpec         `json:"agent"`
+	WorkDir           string            `json:"workDir,omitempty"`
+	RuntimeConfigMode RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
+	RuntimeHome       string            `json:"runtimeHome,omitempty"`
+	MCPServers        []MCPServerSpec   `json:"mcpServers,omitempty"`
+	ResumeSessionID   string            `json:"resumeSessionId,omitempty"`
+	Metadata          map[string]any    `json:"metadata,omitempty"`
 }
 
 // PromptRequest sends one prompt to an existing session.
@@ -58,14 +60,15 @@ type PromptRequest struct {
 // RunRequest executes a one-shot run. Adapters may implement it directly or the
 // runtime may emulate it with a short-lived session.
 type RunRequest struct {
-	RunID       string                   `json:"runId,omitempty"`
-	Agent       AgentSpec                `json:"agent"`
-	Input       string                   `json:"input"`
-	Images      []contracts.ImageContent `json:"images,omitempty"`
-	WorkDir     string                   `json:"workDir,omitempty"`
-	RuntimeHome string                   `json:"runtimeHome,omitempty"`
-	MCPServers  []MCPServerSpec          `json:"mcpServers,omitempty"`
-	Metadata    map[string]any           `json:"metadata,omitempty"`
+	RunID             string                   `json:"runId,omitempty"`
+	Agent             AgentSpec                `json:"agent"`
+	Input             string                   `json:"input"`
+	Images            []contracts.ImageContent `json:"images,omitempty"`
+	WorkDir           string                   `json:"workDir,omitempty"`
+	RuntimeConfigMode RuntimeConfigMode        `json:"runtimeConfigMode,omitempty"`
+	RuntimeHome       string                   `json:"runtimeHome,omitempty"`
+	MCPServers        []MCPServerSpec          `json:"mcpServers,omitempty"`
+	Metadata          map[string]any           `json:"metadata,omitempty"`
 }
 
 // RunResult is the normalized final result from a one-shot run or prompt.

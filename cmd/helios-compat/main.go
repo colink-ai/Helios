@@ -23,6 +23,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	agentType := flags.String("agent", "hermes", "agent adapter type")
 	cliPath := flags.String("cli", "", "agent CLI path")
+	configMode := flags.String("runtime-config-mode", "", "runtime config mode: isolated or user")
+	runtimeHome := flags.String("runtime-home", "", "agent runtime home/config directory")
+	workDir := flags.String("workdir", "", "agent process working directory")
 	input := flags.String("input", "Say hello from Helios.", "probe prompt")
 	scenarios := flags.String("scenarios", "detect,one_shot,resident", "comma-separated scenarios")
 	timeout := flags.Duration("timeout", 2*time.Minute, "per-scenario timeout")
@@ -33,11 +36,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err := all.Register(registry); err != nil {
 		return exit(stderr, err)
 	}
+	mode := helios.RuntimeConfigMode(*configMode)
+	if mode != "" && mode != helios.RuntimeConfigIsolated && mode != helios.RuntimeConfigUser {
+		return exit(stderr, fmt.Errorf("runtime-config-mode must be %q or %q", helios.RuntimeConfigIsolated, helios.RuntimeConfigUser))
+	}
 	engine := helios.NewEngine(registry)
 	harness := helios.NewCompatibilityHarness(engine)
 	report := harness.Run(context.Background(), helios.AgentSpec{
-		Type:    *agentType,
-		CLIPath: *cliPath,
+		Type:              *agentType,
+		CLIPath:           *cliPath,
+		RuntimeConfigMode: mode,
+		RuntimeHome:       *runtimeHome,
+		WorkDir:           *workDir,
 	}, checks(*scenarios, *input, *timeout))
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

@@ -29,6 +29,16 @@ func TestRunParseError(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidRuntimeConfigMode(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"-runtime-config-mode", "shared"}, &out, &errOut); code != 1 {
+		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "runtime-config-mode") {
+		t.Fatalf("unexpected error: %q", errOut.String())
+	}
+}
+
 func TestRunFailedProbe(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"-agent", "missing", "-scenarios", "detect", "-timeout", "1ms"}, &out, &errOut)

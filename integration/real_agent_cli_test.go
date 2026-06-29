@@ -315,8 +315,12 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 	if workDir == "" {
 		workDir = t.TempDir()
 	}
+	configMode := helios.RuntimeConfigMode(os.Getenv("HELIOS_RUNTIME_CONFIG_MODE"))
+	if configMode != "" && configMode != helios.RuntimeConfigIsolated && configMode != helios.RuntimeConfigUser {
+		t.Fatalf("HELIOS_RUNTIME_CONFIG_MODE must be %q or %q, got %q", helios.RuntimeConfigIsolated, helios.RuntimeConfigUser, configMode)
+	}
 	runtimeHome := os.Getenv("HELIOS_RUNTIME_HOME")
-	if runtimeHome == "" {
+	if runtimeHome == "" && configMode != helios.RuntimeConfigUser {
 		runtimeHome = filepath.Join(t.TempDir(), "runtime-home")
 	}
 
@@ -334,18 +338,19 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 	multimodalPrompt := envDefault("HELIOS_MULTIMODAL_PROMPT", "The attached image is a single-color square. Reply with exactly one lowercase English word for its color.")
 	multimodalExpect := envDefault("HELIOS_MULTIMODAL_EXPECT_CONTAINS", "red")
 	agent := helios.AgentSpec{
-		ID:           "integration-agent",
-		Type:         agentType,
-		Name:         "Real CLI Integration Agent",
-		CLIPath:      cliPath,
-		DefaultModel: os.Getenv("HELIOS_MODEL"),
-		APIURL:       os.Getenv("HELIOS_API_URL"),
-		APIToken:     apiKey,
-		RuntimeHome:  runtimeHome,
-		WorkDir:      workDir,
-		Metadata:     agentMetadata(agentType),
+		ID:                "integration-agent",
+		Type:              agentType,
+		Name:              "Real CLI Integration Agent",
+		CLIPath:           cliPath,
+		DefaultModel:      os.Getenv("HELIOS_MODEL"),
+		APIURL:            os.Getenv("HELIOS_API_URL"),
+		APIToken:          apiKey,
+		RuntimeConfigMode: configMode,
+		RuntimeHome:       runtimeHome,
+		WorkDir:           workDir,
+		Metadata:          agentMetadata(agentType),
 	}
-	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v workDir=%s runtimeHome=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", workDir, runtimeHome)
+	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v configMode=%s workDir=%s runtimeHome=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", configMode, workDir, runtimeHome)
 	return integrationConfig{
 		agent:                    agent,
 		workDir:                  workDir,

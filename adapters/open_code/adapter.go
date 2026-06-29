@@ -91,17 +91,14 @@ func buildEnv(req helios.SessionRequest, cfg config) []string {
 }
 
 func configDir(req helios.SessionRequest) string {
-	if req.RuntimeHome != "" {
-		return filepath.Join(req.RuntimeHome, "opencode")
+	if helios.EffectiveRuntimeConfigMode(req) == helios.RuntimeConfigUser {
+		return ""
 	}
-	if req.Agent.RuntimeHome != "" {
-		return filepath.Join(req.Agent.RuntimeHome, "opencode")
+	if home := helios.EffectiveRuntimeHome(req); home != "" {
+		return filepath.Join(home, "opencode")
 	}
-	if req.WorkDir != "" {
-		return filepath.Join(req.WorkDir, ".opencode")
-	}
-	if req.Agent.WorkDir != "" {
-		return filepath.Join(req.Agent.WorkDir, ".opencode")
+	if workDir := helios.EffectiveWorkDir(req); workDir != "" {
+		return filepath.Join(workDir, ".opencode")
 	}
 	return ""
 }
