@@ -7,23 +7,27 @@ import (
 	"testing"
 
 	helios "github.com/colink-ai/helios/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 func TestRenderConfig(t *testing.T) {
-	cfg := renderConfig(helios.AgentSpec{
+	cfg, err := renderConfig(nil, helios.AgentSpec{
 		DefaultModel: "qwen-plus",
 		APIURL:       "https://example.test/v1",
 	}, []helios.MCPServerSpec{
 		{Name: "knowledge", Type: "http", URL: "http://127.0.0.1:9000/mcp", Headers: map[string]string{"Authorization": "Bearer x"}},
 		{Name: "fs", Type: "stdio", Command: "mcp-fs", Args: []string{"."}},
 	})
+	if err != nil {
+		t.Fatalf("render config: %v", err)
+	}
 	for _, want := range []string{
-		`default: "qwen-plus"`,
+		`default: qwen-plus`,
 		`provider: custom`,
-		`base_url: "https://example.test/v1"`,
+		`base_url: https://example.test/v1`,
 		`knowledge:`,
-		`url: "http://127.0.0.1:9000/mcp"`,
-		`command: "mcp-fs"`,
+		`url: http://127.0.0.1:9000/mcp`,
+		`command: mcp-fs`,
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Fatalf("config missing %q:\n%s", want, cfg)
@@ -45,7 +49,7 @@ func TestWriteConfigAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	if !strings.Contains(string(data), `default: "glm-test"`) {
+	if !strings.Contains(string(data), `default: glm-test`) {
 		t.Fatalf("unexpected config:\n%s", string(data))
 	}
 	env := strings.Join(buildEnv(home, spec), "\n")
@@ -53,6 +57,38 @@ func TestWriteConfigAndEnv(t *testing.T) {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env missing %q: %s", want, env)
 		}
+	}
+}
+
+func TestWriteConfigPreservesExistingAndAppliesMutator(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("existing:\n  enabled: true\nmcp_servers:\n  stale:\n    enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	err := writeConfig(home, helios.AgentSpec{DefaultModel: "glm-test"}, nil, func(cfg map[string]any) {
+		cfg["memory"] = map[string]any{"memory_enabled": false}
+		cfg["skills"] = map[string]any{"guard_agent_created": true}
+	})
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var cfg map[string]any
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("config should be yaml: %v\n%s", err, data)
+	}
+	if cfg["existing"].(map[string]any)["enabled"] != true {
+		t.Fatalf("existing config should be preserved: %+v", cfg)
+	}
+	if _, ok := cfg["mcp_servers"]; ok {
+		t.Fatalf("stale mcp servers should be removed when no servers are provided: %+v", cfg["mcp_servers"])
+	}
+	if cfg["memory"].(map[string]any)["memory_enabled"] != false {
+		t.Fatalf("mutator config missing: %+v", cfg)
 	}
 }
 

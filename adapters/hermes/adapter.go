@@ -5,21 +5,41 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/colink-ai/helios/adapters/acp"
 	helios "github.com/colink-ai/helios/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 const Type = "hermes"
 
 type Option func(*config)
 
+// ConfigMutator lets host applications add adapter-specific Hermes config
+// keys without reimplementing Hermes config rendering in the host.
+type ConfigMutator func(map[string]any)
+
 type config struct {
-	cliPath string
+	cliPath        string
+	configMutators []ConfigMutator
+	promptTimeout  time.Duration
 }
 
 func WithCLIPath(path string) Option {
 	return func(c *config) { c.cliPath = path }
+}
+
+func WithConfigMutator(mutator ConfigMutator) Option {
+	return func(c *config) {
+		if mutator != nil {
+			c.configMutators = append(c.configMutators, mutator)
+		}
+	}
+}
+
+func WithPromptTimeout(timeout time.Duration) Option {
+	return func(c *config) { c.promptTimeout = timeout }
 }
 
 func NewAdapter(opts ...Option) helios.Adapter {
@@ -35,10 +55,11 @@ func NewAdapter(opts ...Option) helios.Adapter {
 		BuildEnv: func(req helios.SessionRequest) []string {
 			home := runtimeHome(req)
 			if home != "" {
-				_ = writeConfig(home, req.Agent, req.MCPServers)
+				_ = writeConfig(home, req.Agent, req.MCPServers, cfg.configMutators...)
 			}
 			return buildEnv(home, req.Agent)
 		},
+		PromptTimeout: cfg.promptTimeout,
 	})
 }
 
@@ -52,6 +73,9 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			localOpts := append([]Option{}, opts...)
 			if spec.CLIPath != "" {
 				localOpts = append(localOpts, WithCLIPath(spec.CLIPath))
+			}
+			if spec.PromptTimeout != 0 {
+				localOpts = append(localOpts, WithPromptTimeout(spec.PromptTimeout))
 			}
 			return NewAdapter(localOpts...), nil
 		},
@@ -82,45 +106,72 @@ func buildEnv(home string, spec helios.AgentSpec) []string {
 	return env
 }
 
-func writeConfig(home string, spec helios.AgentSpec, servers []helios.MCPServerSpec) error {
+func writeConfig(home string, spec helios.AgentSpec, servers []helios.MCPServerSpec, mutators ...ConfigMutator) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
-	content := renderConfig(spec, servers)
 	path := filepath.Join(home, "config.yaml")
+	content, err := renderConfig(loadConfig(path), spec, servers, mutators...)
+	if err != nil {
+		return err
+	}
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
 		return nil
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-func renderConfig(spec helios.AgentSpec, servers []helios.MCPServerSpec) string {
-	var b strings.Builder
-	if spec.DefaultModel != "" || spec.APIURL != "" || spec.APIToken != "" {
-		b.WriteString("model:\n")
-		if spec.DefaultModel != "" {
-			b.WriteString("  default: ")
-			b.WriteString(quote(spec.DefaultModel))
-			b.WriteByte('\n')
-		}
-		if spec.APIURL != "" || spec.APIToken != "" {
-			b.WriteString("  provider: custom\n")
-		}
-		if spec.APIURL != "" {
-			b.WriteString("  base_url: ")
-			b.WriteString(quote(spec.APIURL))
-			b.WriteByte('\n')
-		}
+func loadConfig(path string) map[string]any {
+	cfg := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg
 	}
-	mcp := renderMCPServers(servers)
-	if mcp != "" {
-		b.WriteString("mcp_servers:\n")
-		b.WriteString(mcp)
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return map[string]any{}
 	}
-	return b.String()
+	return cfg
 }
 
-func renderMCPServers(servers []helios.MCPServerSpec) string {
+func renderConfig(existing map[string]any, spec helios.AgentSpec, servers []helios.MCPServerSpec, mutators ...ConfigMutator) (string, error) {
+	cfg := existing
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	if spec.DefaultModel != "" || spec.APIURL != "" || spec.APIToken != "" {
+		model, _ := cfg["model"].(map[string]any)
+		if model == nil {
+			model = map[string]any{}
+		}
+		if spec.DefaultModel != "" {
+			model["default"] = spec.DefaultModel
+		}
+		if spec.APIURL != "" || spec.APIToken != "" {
+			model["provider"] = "custom"
+		}
+		if spec.APIURL != "" {
+			model["base_url"] = spec.APIURL
+		}
+		cfg["model"] = model
+	}
+	if mcp := renderMCPServers(servers); len(mcp) > 0 {
+		cfg["mcp_servers"] = mcp
+	} else {
+		delete(cfg, "mcp_servers")
+	}
+	for _, mutator := range mutators {
+		if mutator != nil {
+			mutator(cfg)
+		}
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func renderMCPServers(servers []helios.MCPServerSpec) map[string]any {
 	filtered := make([]helios.MCPServerSpec, 0, len(servers))
 	for _, server := range servers {
 		if server.Name != "" {
@@ -128,63 +179,35 @@ func renderMCPServers(servers []helios.MCPServerSpec) string {
 		}
 	}
 	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
-	var b strings.Builder
+	out := make(map[string]any, len(filtered))
 	for _, server := range filtered {
+		item := map[string]any{"enabled": true}
 		switch server.Type {
 		case "http", "sse":
 			if server.URL == "" {
 				continue
 			}
-			b.WriteString("  ")
-			b.WriteString(quoteKey(server.Name))
-			b.WriteString(":\n    enabled: true\n    url: ")
-			b.WriteString(quote(server.URL))
-			b.WriteByte('\n')
-			writeStringMap(&b, "headers", server.Headers, 4)
+			item["url"] = server.URL
+			if len(server.Headers) > 0 {
+				item["headers"] = server.Headers
+			}
 		case "stdio":
 			if server.Command == "" {
 				continue
 			}
-			b.WriteString("  ")
-			b.WriteString(quoteKey(server.Name))
-			b.WriteString(":\n    enabled: true\n    command: ")
-			b.WriteString(quote(server.Command))
-			b.WriteByte('\n')
+			item["command"] = server.Command
 			if len(server.Args) > 0 {
-				b.WriteString("    args:\n")
-				for _, arg := range server.Args {
-					b.WriteString("      - ")
-					b.WriteString(quote(arg))
-					b.WriteByte('\n')
-				}
+				item["args"] = server.Args
 			}
-			writeStringMap(&b, "env", server.Env, 4)
+			if len(server.Env) > 0 {
+				item["env"] = server.Env
+			}
+		default:
+			continue
 		}
+		out[server.Name] = item
 	}
-	return b.String()
-}
-
-func writeStringMap(b *strings.Builder, name string, values map[string]string, indent int) {
-	if len(values) == 0 {
-		return
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	spaces := strings.Repeat(" ", indent)
-	b.WriteString(spaces)
-	b.WriteString(name)
-	b.WriteString(":\n")
-	for _, key := range keys {
-		b.WriteString(spaces)
-		b.WriteString("  ")
-		b.WriteString(quoteKey(key))
-		b.WriteString(": ")
-		b.WriteString(quote(values[key]))
-		b.WriteByte('\n')
-	}
+	return out
 }
 
 func abs(path string) string {
