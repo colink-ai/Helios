@@ -187,6 +187,21 @@ func TestHelperFallbacks(t *testing.T) {
 	}
 }
 
+func TestEffectivePromptTimeoutUsesSmallerDeadline(t *testing.T) {
+	adapter := NewBaseAdapter(Config{PromptTimeout: time.Minute})
+	longCtx, longCancel := context.WithTimeout(context.Background(), time.Hour)
+	defer longCancel()
+	if got := adapter.effectivePromptTimeout(longCtx); got > time.Minute || got < 59*time.Second {
+		t.Fatalf("long context should keep configured timeout, got %s", got)
+	}
+
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer shortCancel()
+	if got := adapter.effectivePromptTimeout(shortCtx); got >= time.Minute {
+		t.Fatalf("short context deadline should win, got %s", got)
+	}
+}
+
 func TestCaptureStderrAndText(t *testing.T) {
 	s := &session{}
 	captureStderr(io.NopCloser(bytes.NewBufferString("a\nb\n")), s)

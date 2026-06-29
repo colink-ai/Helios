@@ -19,7 +19,7 @@ func (a nativeRunAdapter) Run(_ context.Context, _ RunRequest, onChunk ChunkHand
 		return nil, fmt.Errorf("native failed")
 	}
 	onChunk(contracts.Chunk{Type: contracts.ChunkText, Content: "native chunk"})
-	return &RunResult{Output: "native ok"}, nil
+	return &RunResult{Output: "native ok", SessionID: "native-session"}, nil
 }
 
 type failingPromptAdapter struct {
@@ -336,8 +336,17 @@ func TestEngineRunNative(t *testing.T) {
 	if result.Output != "native ok" {
 		t.Fatalf("unexpected result: %+v", result)
 	}
-	if len(events) < 3 || events[1].Chunk.Content != "native chunk" {
+	if len(events) != 5 {
 		t.Fatalf("unexpected events: %+v", events)
+	}
+	if events[1].Type != contracts.EventSessionStarted || events[1].SessionID != "native-session" {
+		t.Fatalf("native run should emit session start with session id: %+v", events)
+	}
+	if events[2].Chunk.Content != "native chunk" || events[2].SessionID != "native-session" {
+		t.Fatalf("native chunk should include session id: %+v", events)
+	}
+	if events[3].Type != contracts.EventSessionStopped || events[4].Type != contracts.EventRunCompleted || events[4].SessionID != "native-session" {
+		t.Fatalf("native run should emit stop and completion with session id: %+v", events)
 	}
 }
 

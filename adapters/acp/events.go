@@ -3,7 +3,6 @@ package acp
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -579,14 +578,5 @@ func withoutKeys(values map[string]any, keys ...string) map[string]any {
 	if len(out) == 0 {
 		return nil
 	}
-	ordered := make(map[string]any, len(out))
-	keysOut := make([]string, 0, len(out))
-	for key := range out {
-		keysOut = append(keysOut, key)
-	}
-	sort.Strings(keysOut)
-	for _, key := range keysOut {
-		ordered[key] = out[key]
-	}
-	return ordered
+	return out
 }

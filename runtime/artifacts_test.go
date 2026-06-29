@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,7 +39,7 @@ func TestFileArtifactStoreSanitizesPathSegments(t *testing.T) {
 	store := NewFileArtifactStore(root)
 	saved, err := store.SaveArtifact(context.Background(), contracts.Artifact{
 		SessionID: "../escape",
-		Type:      contracts.ArtifactDocument,
+		Type:      contracts.ArtifactType("../../escape"),
 		Name:      "../secret.md",
 		Content:   "safe",
 	})
@@ -46,6 +48,12 @@ func TestFileArtifactStoreSanitizesPathSegments(t *testing.T) {
 	}
 	if !strings.HasPrefix(saved.Path, root) || strings.Contains(saved.Path, "..") {
 		t.Fatalf("unsafe path: %s", saved.Path)
+	}
+	if strings.Contains(saved.Path, string(filepath.Separator)+".."+string(filepath.Separator)) {
+		t.Fatalf("path still contains traversal: %s", saved.Path)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(root), "escape", "secret.md")); err == nil {
+		t.Fatalf("artifact escaped root")
 	}
 }
 

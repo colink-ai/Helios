@@ -302,14 +302,53 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	}
 
 	if native, ok := adapter.(RunAdapter); ok {
+		chunks := []contracts.Chunk{}
+		var chunksMu sync.Mutex
 		result, err := native.Run(ctx, req, func(chunk contracts.Chunk) {
-			_ = e.EmitChunk(ctx, runID, "", req.Agent.ID, chunk)
+			chunksMu.Lock()
+			defer chunksMu.Unlock()
+			chunks = append(chunks, chunk)
 		})
 		if err != nil {
 			_ = e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunFailed, RunID: runID, AgentID: req.Agent.ID, Error: err.Error(), Timestamp: time.Now().UTC()})
 			return nil, err
 		}
-		if err := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()}); err != nil && e.strictSink {
+		if result == nil {
+			result = &RunResult{}
+		}
+		if result.RunID == "" {
+			result.RunID = runID
+		}
+		sessionID := result.SessionID
+		if sessionID == "" {
+			sessionID = NewID("session")
+			result.SessionID = sessionID
+		}
+		sessionReq := SessionRequest{
+			RunID:       runID,
+			SessionID:   sessionID,
+			Agent:       req.Agent,
+			WorkDir:     req.WorkDir,
+			RuntimeHome: req.RuntimeHome,
+			MCPServers:  req.MCPServers,
+			Metadata:    req.Metadata,
+		}
+		if err := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
+			return nil, err
+		}
+		chunksMu.Lock()
+		chunksSnapshot := make([]contracts.Chunk, len(chunks))
+		copy(chunksSnapshot, chunks)
+		chunksMu.Unlock()
+		for _, chunk := range chunksSnapshot {
+			if err := e.EmitChunk(ctx, runID, sessionID, req.Agent.ID, chunk); err != nil && e.strictSink {
+				return nil, err
+			}
+		}
+		if err := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, "")); err != nil && e.strictSink {
+			return nil, err
+		}
+		if err := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, SessionID: sessionID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()}); err != nil && e.strictSink {
 			return nil, err
 		}
 		return result, nil

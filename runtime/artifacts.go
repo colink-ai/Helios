@@ -64,10 +64,14 @@ func (s *FileArtifactStore) SaveArtifactReader(ctx context.Context, artifact con
 		return contracts.Artifact{}, err
 	}
 	path := filepath.Join(s.root, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	cleanPath, err := containedArtifactPath(s.root, path)
+	if err != nil {
 		return contracts.Artifact{}, err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o755); err != nil {
+		return contracts.Artifact{}, err
+	}
+	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return contracts.Artifact{}, err
 	}
@@ -78,7 +82,7 @@ func (s *FileArtifactStore) SaveArtifactReader(ctx context.Context, artifact con
 	if err := file.Close(); err != nil {
 		return contracts.Artifact{}, err
 	}
-	artifact.Path = path
+	artifact.Path = cleanPath
 	artifact.Content = ""
 	if artifact.CreatedAt.IsZero() {
 		artifact.CreatedAt = time.Now().UTC()
@@ -121,16 +125,9 @@ func (s *FileArtifactStore) ReadArtifact(_ context.Context, artifact contracts.A
 		}
 		path = filepath.Join(s.root, rel)
 	}
-	cleanRoot, err := filepath.Abs(s.root)
+	cleanPath, err := containedArtifactPath(s.root, path)
 	if err != nil {
 		return nil, err
-	}
-	cleanPath, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	if cleanPath != cleanRoot && !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("artifact path escapes root: %s", artifact.Path)
 	}
 	return os.ReadFile(cleanPath)
 }
@@ -147,7 +144,26 @@ func safeArtifactPath(artifact contracts.Artifact) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("artifact name or id is required")
 	}
-	return filepath.Join(sessionID, string(artifact.Type), name), nil
+	artifactType := cleanPathSegment(string(artifact.Type))
+	if artifactType == "" {
+		artifactType = string(contracts.ArtifactOther)
+	}
+	return filepath.Join(sessionID, artifactType, name), nil
+}
+
+func containedArtifactPath(root string, path string) (string, error) {
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if cleanPath != cleanRoot && !strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("artifact path escapes root: %s", path)
+	}
+	return cleanPath, nil
 }
 
 func cleanPathSegment(value string) string {

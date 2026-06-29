@@ -57,6 +57,7 @@ type session struct {
 	resumeStrategy      string
 	suppressReplay      bool
 	mu                  sync.Mutex
+	promptMu            sync.Mutex
 }
 
 type pendingElicitation struct {
@@ -193,10 +194,10 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 	if err != nil {
 		return nil, err
 	}
-	timeout := a.promptTimeout()
-	if deadline, ok := ctx.Deadline(); ok {
-		timeout = time.Until(deadline)
-	}
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+
+	timeout := a.effectivePromptTimeout(ctx)
 	promptCtx := ctx
 	cancel := func() {}
 	if timeout > 0 {
@@ -782,6 +783,17 @@ func (a *BaseAdapter) promptTimeout() time.Duration {
 		return a.config.PromptTimeout
 	}
 	return defaultPromptTimeout
+}
+
+func (a *BaseAdapter) effectivePromptTimeout(ctx context.Context) time.Duration {
+	timeout := a.promptTimeout()
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if timeout <= 0 || remaining < timeout {
+			timeout = remaining
+		}
+	}
+	return timeout
 }
 
 func captureStderr(stderr ioReader, s *session) {

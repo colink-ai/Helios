@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/colink-ai/helios/contracts"
@@ -119,7 +120,7 @@ func (h *CompatibilityHarness) runCheck(ctx context.Context, spec AgentSpec, che
 func (h *CompatibilityHarness) runOneShot(ctx context.Context, spec AgentSpec, check CompatibilityCheck) (*RunResult, []contracts.Chunk, error) {
 	engine, chunks := h.captureEngine()
 	run, err := engine.Run(ctx, RunRequest{Agent: spec, Input: check.Input})
-	return run, *chunks, err
+	return run, chunks.snapshot(), err
 }
 
 func (h *CompatibilityHarness) runSession(ctx context.Context, spec AgentSpec, check CompatibilityCheck) (*RunResult, []contracts.Chunk, string, error) {
@@ -134,16 +135,16 @@ func (h *CompatibilityHarness) runSession(ctx context.Context, spec AgentSpec, c
 	defer engine.StopSession(context.Background(), handle.ID)
 	run, err := engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: check.Input})
 	if err != nil {
-		return nil, *chunks, handle.AgentSessionID, err
+		return nil, chunks.snapshot(), handle.AgentSessionID, err
 	}
-	return run, *chunks, handle.AgentSessionID, nil
+	return run, chunks.snapshot(), handle.AgentSessionID, nil
 }
 
-func (h *CompatibilityHarness) captureEngine() (*Engine, *[]contracts.Chunk) {
-	chunks := []contracts.Chunk{}
+func (h *CompatibilityHarness) captureEngine() (*Engine, *capturedChunks) {
+	chunks := &capturedChunks{}
 	sink := EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
 		if event.Chunk != nil {
-			chunks = append(chunks, *event.Chunk)
+			chunks.append(*event.Chunk)
 		}
 		return nil
 	})
@@ -151,7 +152,26 @@ func (h *CompatibilityHarness) captureEngine() (*Engine, *[]contracts.Chunk) {
 	if h.store != nil {
 		opts = append(opts, WithSessionStore(h.store))
 	}
-	return NewEngine(h.engine.registry, opts...), &chunks
+	return NewEngine(h.engine.registry, opts...), chunks
+}
+
+type capturedChunks struct {
+	mu     sync.Mutex
+	chunks []contracts.Chunk
+}
+
+func (c *capturedChunks) append(chunk contracts.Chunk) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.chunks = append(c.chunks, chunk)
+}
+
+func (c *capturedChunks) snapshot() []contracts.Chunk {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]contracts.Chunk, len(c.chunks))
+	copy(out, c.chunks)
+	return out
 }
 
 func requireChunkTypes(chunks []contracts.Chunk, want []contracts.ChunkType) error {

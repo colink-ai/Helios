@@ -87,6 +87,8 @@ func (r *TeamRunner) Run(ctx context.Context, req TeamRunRequest) (*TeamRunResul
 			RunID:     runID,
 			FromAgent: fromAgent,
 			ToAgent:   node.AgentID,
+			// Content is the input handed to this node; the node output is stored
+			// in result.Results and becomes the next node's input.
 			Content:   input,
 			CreatedAt: time.Now().UTC(),
 		})

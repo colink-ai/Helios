@@ -74,13 +74,34 @@ Helios does not write to SQLite, MySQL, PostgreSQL, or any application database.
 Host applications implement `runtime.EventSink` and `runtime.SessionStore` when
 they want to persist runtime events or resume metadata.
 
+## Implementation Status
+
+Helios is intentionally growing from the runtime center outward. The current SDK
+ships the stable runtime contracts, event layer, ACP transport, and built-in CLI
+agent adapters first; broader adapter families are tracked as roadmap work.
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Runtime contracts and semantic events | Implemented | Versioned event/chunk schema for sessions, tools, questions, permissions, artifacts, usage, plans, handoffs, and errors. |
+| Session orchestration | Implemented | One-shot runs, resident sessions, resume helpers, diagnostics, event sinks, and optional session store interfaces. |
+| ACP CLI adapters | Implemented | Shared ACP base adapter plus Hermes, OpenCode, Claude Code, and OpenClaw adapters. |
+| MCP server wiring | Implemented as pass-through | Host applications pass MCP server specs into sessions; Helios does not yet expose a standalone MCP adapter abstraction. |
+| File artifact storage | Implemented as optional utility | Database-free file store for hosts that want SDK-managed artifact bytes. |
+| WorkGraph teams | Lightweight primitive | Sequential execution and A2A input capture are implemented; parallel branches, joins, and handoff execution remain roadmap work. |
+| ModelAdapter | Planned | Direct model-provider adapter abstraction is not yet separate from CLI agent adapters. |
+| ToolAdapter | Planned | Tool execution remains agent/protocol mediated for now. |
+| LocalSkillAdapter / Local Bridge | Planned | Local skill and bridge governance are product-roadmap concepts that do not yet have dedicated SDK interfaces. |
+| Remote worker runtime | Planned | Current runtime is optimized for embedded processes, with interfaces kept open for split workers. |
+
 ## Runtime Modes
 
 Helios supports both common product integration modes:
 
 - One-shot runs: `runtime.Engine.Run` starts a temporary session, prompts the
   agent, streams normalized events, and stops the session. Adapters can also
-  implement `runtime.RunAdapter` for native one-shot execution.
+  implement `runtime.RunAdapter` for native one-shot execution. The engine emits
+  session events for both paths; native adapters that return a session id let
+  one-shot chunk, artifact, handoff, and usage events carry that same session id.
 - Resident sessions: `runtime.Engine.StartSession`, `Prompt`, and `StopSession`
   keep an adapter process alive across turns, which is suitable for chat,
   support, and operations workflows.
@@ -279,6 +300,6 @@ own environment, because installed CLI versions and protocol details can differ.
 
 ## Project
 
-- License: [MIT](LICENSE)
+- License: [Apache 2.0](LICENSE)
 - Contributing guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
