@@ -1,0 +1,78 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Helios architecture</title>
+  <desc id="desc">Hand-drawn architecture map showing host applications, Helios runtime packages, adapters, and agent runtimes.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fffdf7; }
+      .ink { stroke: #202124; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .thin { stroke: #202124; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+      .dash { stroke-dasharray: 8 10; }
+      .title { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 28px; font-weight: 800; }
+      .label { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 21px; font-weight: 700; }
+      .small { fill: #3c4043; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 16px; font-weight: 600; }
+      .muted { fill: #5f6368; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 14px; font-weight: 600; }
+      .a { fill: #bde0fe; }
+      .b { fill: #caffbf; }
+      .c { fill: #ffd6a5; }
+      .d { fill: #ffc8dd; }
+      .e { fill: #d0bfff; }
+      .f { fill: #fffef8; }
+    </style>
+  </defs>
+  <rect class="bg" width="1200" height="640" rx="28"/>
+  <text class="title" x="430" y="58">What Helios standardizes</text>
+
+  <g transform="translate(55 108)">
+    <path class="ink a" d="M17 13 C124 -7 253 -2 343 20 C360 88 358 160 341 231 C231 254 115 252 18 232 C0 159 -2 79 17 13Z"/>
+    <text class="label" x="91" y="54">Host application</text>
+    <text class="small" x="38" y="94">users and tenants</text>
+    <text class="small" x="38" y="125">product workflows</text>
+    <text class="small" x="38" y="156">database and audit</text>
+    <text class="small" x="38" y="187">UI and permissions</text>
+  </g>
+
+  <g transform="translate(430 92)">
+    <path class="ink f" d="M25 18 C126 0 263 2 365 20 C390 96 388 314 361 392 C243 419 128 417 22 392 C-2 296 -1 108 25 18Z"/>
+    <text class="title" x="134" y="57">Helios</text>
+    <g transform="translate(48 90)">
+      <path class="thin c" d="M9 6 C76 -5 151 -2 206 7 C217 42 214 83 204 116 C142 128 74 128 10 116 C-2 78 -2 40 9 6Z"/>
+      <text class="label" x="55" y="42">runtime</text>
+      <text class="muted" x="35" y="75">Engine, sessions, resume</text>
+    </g>
+    <g transform="translate(48 224)">
+      <path class="thin d" d="M9 6 C75 -5 151 -2 206 7 C217 42 214 83 204 116 C142 128 74 128 10 116 C-2 78 -2 40 9 6Z"/>
+      <text class="label" x="48" y="42">contracts</text>
+      <text class="muted" x="24" y="75">events, chunks, artifacts</text>
+    </g>
+    <g transform="translate(244 151)">
+      <path class="thin e" d="M9 6 C75 -5 151 -2 206 7 C217 42 214 83 204 116 C142 128 74 128 10 116 C-2 78 -2 40 9 6Z"/>
+      <text class="label" x="56" y="42">adapters</text>
+      <text class="muted" x="26" y="75">ACP, CLI bridges, drift</text>
+    </g>
+  </g>
+
+  <g transform="translate(875 105)">
+    <path class="ink b" d="M19 13 C109 -5 218 -3 302 18 C321 88 319 165 301 232 C210 253 105 253 19 232 C-1 159 -3 76 19 13Z"/>
+    <text class="label" x="95" y="54">Agent runtimes</text>
+    <text class="small" x="41" y="94">fast protocol changes</text>
+    <text class="small" x="41" y="125">streaming variants</text>
+    <text class="small" x="41" y="156">tool call differences</text>
+    <text class="small" x="41" y="187">model capability drift</text>
+  </g>
+
+  <path class="ink" d="M400 224 C431 224 437 224 463 224"/>
+  <path class="ink" d="M792 224 C826 224 840 224 875 224"/>
+  <path class="thin" d="M450 211 L466 224 L450 237"/>
+  <path class="thin" d="M858 211 L876 224 L858 237"/>
+  <text class="small" x="414" y="195">semantic API</text>
+  <text class="small" x="804" y="195">protocol adapters</text>
+
+  <g transform="translate(110 430)">
+    <path class="thin dash" d="M0 0 C148 30 273 31 405 4"/>
+    <text class="small" x="26" y="48">Your app decides what to store.</text>
+  </g>
+  <g transform="translate(682 430)">
+    <path class="thin dash" d="M0 4 C159 31 284 30 430 0"/>
+    <text class="small" x="29" y="48">Helios decides how runtimes talk.</text>
+  </g>
+</svg>

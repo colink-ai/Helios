@@ -1,0 +1,89 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Helios runtime layer</title>
+  <desc id="desc">A hand-drawn style diagram showing product applications connected through Helios to multiple foundation agents.</desc>
+  <defs>
+    <filter id="paper" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.07"/>
+      </feComponentTransfer>
+    </filter>
+    <style>
+      .paper { fill: #fffaf0; }
+      .ink { stroke: #202124; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .thin { stroke: #202124; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+      .dash { stroke-dasharray: 9 11; }
+      .label { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 25px; font-weight: 700; }
+      .small { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 18px; font-weight: 600; }
+      .tiny { fill: #5f6368; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 15px; font-weight: 600; }
+      .sun { fill: #ffd166; stroke: #202124; stroke-width: 4; }
+      .blue { fill: #bde0fe; }
+      .green { fill: #caffbf; }
+      .pink { fill: #ffc8dd; }
+      .orange { fill: #ffd6a5; }
+      .purple { fill: #d0bfff; }
+      .white { fill: #fffef8; }
+    </style>
+  </defs>
+  <rect class="paper" x="0" y="0" width="1200" height="520" rx="34"/>
+  <rect x="0" y="0" width="1200" height="520" filter="url(#paper)"/>
+
+  <path class="thin dash" d="M96 104 C216 58 334 66 432 113"/>
+  <path class="thin dash" d="M796 99 C929 49 1037 66 1127 123"/>
+
+  <circle class="sun" cx="600" cy="118" r="58"/>
+  <path class="thin" d="M600 37 V15"/>
+  <path class="thin" d="M600 221 V198"/>
+  <path class="thin" d="M519 118 H493"/>
+  <path class="thin" d="M707 118 H681"/>
+  <path class="thin" d="M543 61 L526 44"/>
+  <path class="thin" d="M657 61 L674 43"/>
+  <path class="thin" d="M543 175 L526 193"/>
+  <path class="thin" d="M657 175 L674 193"/>
+  <text class="label" x="559" y="128">Helios</text>
+  <text class="tiny" x="523" y="156">runtime layer</text>
+
+  <g transform="translate(74 174)">
+    <path class="ink blue" d="M15 12 C88 -2 170 4 236 15 C253 60 247 128 229 168 C158 186 76 183 18 166 C1 118 -1 58 15 12Z"/>
+    <text class="label" x="54" y="52">Products</text>
+    <text class="small" x="34" y="91">coding workspaces</text>
+    <text class="small" x="34" y="120">ops copilots</text>
+    <text class="small" x="34" y="149">support tools</text>
+  </g>
+
+  <g transform="translate(442 273)">
+    <path class="ink white" d="M22 19 C106 2 232 -2 324 19 C350 78 344 153 320 207 C219 226 104 224 22 208 C0 147 -2 75 22 19Z"/>
+    <text class="label" x="122" y="57">Stable API</text>
+    <text class="small" x="59" y="97">sessions</text>
+    <text class="small" x="172" y="97">events</text>
+    <text class="small" x="263" y="97">resume</text>
+    <path class="thin" d="M54 120 C138 132 228 131 310 119"/>
+    <text class="tiny" x="58" y="158">no app database</text>
+    <text class="tiny" x="190" y="158">no tenant model</text>
+    <text class="tiny" x="109" y="187">host app owns product truth</text>
+  </g>
+
+  <g transform="translate(882 160)">
+    <path class="ink green" d="M12 12 C83 -4 183 4 256 18 C272 72 271 132 251 181 C176 198 80 198 17 181 C-2 127 -4 63 12 12Z"/>
+    <text class="label" x="58" y="52">Agents</text>
+    <text class="small" x="38" y="90">Hermes</text>
+    <text class="small" x="135" y="90">OpenCode</text>
+    <text class="small" x="38" y="124">Claude Code</text>
+    <text class="small" x="38" y="158">OpenClaw</text>
+  </g>
+
+  <path class="ink" d="M318 266 C394 249 468 215 541 159"/>
+  <path class="ink" d="M659 159 C734 207 807 236 881 253"/>
+  <path class="thin" d="M526 159 L545 158 L536 176"/>
+  <path class="thin" d="M864 244 L883 253 L864 263"/>
+
+  <g transform="translate(89 405)">
+    <path class="thin" d="M0 20 C132 -4 255 -4 393 18"/>
+    <text class="small" x="15" y="53">Business logic stays with your app.</text>
+  </g>
+  <g transform="translate(739 405)">
+    <path class="thin" d="M0 18 C121 -4 246 -3 364 17"/>
+    <text class="small" x="20" y="52">Agent churn stays behind adapters.</text>
+  </g>
+</svg>

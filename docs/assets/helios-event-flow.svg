@@ -1,0 +1,67 @@
+<svg width="1200" height="470" viewBox="0 0 1200 470" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Helios event flow</title>
+  <desc id="desc">Hand-drawn event flow from unstable agent output to normalized Helios events and application persistence.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fffdf7; }
+      .ink { stroke: #202124; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .thin { stroke: #202124; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+      .title { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 27px; font-weight: 800; }
+      .label { fill: #202124; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 20px; font-weight: 700; }
+      .small { fill: #3c4043; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 15px; font-weight: 600; }
+      .tiny { fill: #5f6368; font-family: ui-rounded, "Comic Sans MS", "Trebuchet MS", sans-serif; font-size: 13px; font-weight: 600; }
+      .a { fill: #ffd6a5; }
+      .b { fill: #bde0fe; }
+      .c { fill: #caffbf; }
+      .d { fill: #ffc8dd; }
+      .e { fill: #d0bfff; }
+      .white { fill: #fffef8; }
+    </style>
+  </defs>
+  <rect class="bg" width="1200" height="470" rx="28"/>
+  <text class="title" x="421" y="52">From runtime noise to product events</text>
+
+  <g transform="translate(56 128)">
+    <path class="ink a" d="M15 12 C98 -5 205 -2 281 14 C298 70 294 135 279 189 C190 210 96 209 16 190 C-2 128 -3 70 15 12Z"/>
+    <text class="label" x="62" y="52">Raw agent stream</text>
+    <text class="small" x="37" y="90">vendor chunks</text>
+    <text class="small" x="37" y="119">tool payloads</text>
+    <text class="small" x="37" y="148">CLI session state</text>
+  </g>
+
+  <g transform="translate(452 101)">
+    <path class="ink white" d="M21 14 C119 -5 249 -1 337 17 C360 87 354 202 337 268 C238 293 118 291 19 268 C-3 189 -3 88 21 14Z"/>
+    <text class="label" x="108" y="52">Helios normalizes</text>
+    <g transform="translate(42 82)">
+      <path class="thin b" d="M9 7 C70 -3 141 -3 196 7 C206 39 204 76 194 105 C132 116 70 116 9 105 C-1 72 -2 38 9 7Z"/>
+      <text class="small" x="45" y="42">chunk.text</text>
+      <text class="tiny" x="39" y="70">message/thinking</text>
+    </g>
+    <g transform="translate(184 139)">
+      <path class="thin d" d="M9 7 C70 -3 141 -3 196 7 C206 39 204 76 194 105 C132 116 70 116 9 105 C-1 72 -2 38 9 7Z"/>
+      <text class="small" x="38" y="42">tool.started</text>
+      <text class="tiny" x="35" y="70">approval-ready</text>
+    </g>
+    <g transform="translate(42 198)">
+      <path class="thin e" d="M9 7 C70 -3 141 -3 196 7 C206 39 204 76 194 105 C132 116 70 116 9 105 C-1 72 -2 38 9 7Z"/>
+      <text class="small" x="28" y="42">artifact.created</text>
+      <text class="tiny" x="39" y="70">path + metadata</text>
+    </g>
+  </g>
+
+  <g transform="translate(866 128)">
+    <path class="ink c" d="M15 12 C98 -5 205 -2 281 14 C298 70 294 135 279 189 C190 210 96 209 16 190 C-2 128 -3 70 15 12Z"/>
+    <text class="label" x="75" y="52">Your product</text>
+    <text class="small" x="37" y="90">persist events</text>
+    <text class="small" x="37" y="119">render UI</text>
+    <text class="small" x="37" y="148">audit decisions</text>
+  </g>
+
+  <path class="ink" d="M336 221 C379 221 413 221 452 221"/>
+  <path class="ink" d="M789 221 C817 221 841 221 866 221"/>
+  <path class="thin" d="M436 207 L454 221 L436 235"/>
+  <path class="thin" d="M850 207 L868 221 L850 235"/>
+
+  <path class="thin" d="M116 381 C315 430 875 430 1084 381"/>
+  <text class="small" x="383" y="414">same event schema across one-shot, resident, and resume flows</text>
+</svg>
