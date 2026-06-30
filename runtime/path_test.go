@@ -69,11 +69,25 @@ func TestEffectiveRuntimeConfigMode(t *testing.T) {
 	if got := EffectiveRuntimeConfigMode(SessionRequest{RuntimeHome: "home"}); got != RuntimeConfigIsolated {
 		t.Fatalf("runtime home request mode = %q", got)
 	}
+	if got := EffectiveRuntimeConfigMode(SessionRequest{ConfigDir: "config"}); got != RuntimeConfigIsolated {
+		t.Fatalf("config dir request mode = %q", got)
+	}
 	if got := EffectiveRuntimeConfigMode(SessionRequest{RuntimeConfigMode: RuntimeConfigUser, WorkDir: "work"}); got != RuntimeConfigUser {
 		t.Fatalf("explicit user mode = %q", got)
 	}
 	if got := EffectiveRuntimeConfigMode(SessionRequest{Agent: AgentSpec{RuntimeConfigMode: RuntimeConfigUser, WorkDir: "work"}}); got != RuntimeConfigUser {
 		t.Fatalf("agent user mode = %q", got)
+	}
+}
+
+func TestEffectiveConfigDir(t *testing.T) {
+	req := SessionRequest{ConfigDir: "request-config", Agent: AgentSpec{ConfigDir: "agent-config"}}
+	if got := EffectiveConfigDir(req); got != "request-config" {
+		t.Fatalf("request config dir = %q", got)
+	}
+	req.ConfigDir = ""
+	if got := EffectiveConfigDir(req); got != "agent-config" {
+		t.Fatalf("agent config dir = %q", got)
 	}
 }
 

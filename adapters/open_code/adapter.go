@@ -94,6 +94,9 @@ func configDir(req helios.SessionRequest) string {
 	if helios.EffectiveRuntimeConfigMode(req) == helios.RuntimeConfigUser {
 		return ""
 	}
+	if configDir := helios.EffectiveConfigDir(req); configDir != "" {
+		return configDir
+	}
 	if home := helios.EffectiveRuntimeHome(req); home != "" {
 		return filepath.Join(home, "opencode")
 	}

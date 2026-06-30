@@ -73,7 +73,7 @@ func (p RuntimeProfile) Resolve(domainID string) ResolvedRuntimePaths {
 }
 
 // EffectiveRuntimeConfigMode returns the request-level mode, then the agent
-// default, then infers user config only when no RuntimeHome is provided.
+// default, then infers user config only when no config path is provided.
 func EffectiveRuntimeConfigMode(req SessionRequest) RuntimeConfigMode {
 	if req.RuntimeConfigMode != "" {
 		return req.RuntimeConfigMode
@@ -81,7 +81,7 @@ func EffectiveRuntimeConfigMode(req SessionRequest) RuntimeConfigMode {
 	if req.Agent.RuntimeConfigMode != "" {
 		return req.Agent.RuntimeConfigMode
 	}
-	if EffectiveRuntimeHome(req) == "" && EffectiveWorkDir(req) == "" {
+	if EffectiveConfigDir(req) == "" && EffectiveRuntimeHome(req) == "" && EffectiveWorkDir(req) == "" {
 		return RuntimeConfigUser
 	}
 	return RuntimeConfigIsolated
@@ -93,6 +93,16 @@ func EffectiveRuntimeHome(req SessionRequest) string {
 		return req.RuntimeHome
 	}
 	return req.Agent.RuntimeHome
+}
+
+// EffectiveConfigDir resolves a host-provided agent config directory with
+// request-level precedence. Unlike RuntimeHome, ConfigDir means the host has
+// already prepared the exact directory the adapter should give to the CLI.
+func EffectiveConfigDir(req SessionRequest) string {
+	if req.ConfigDir != "" {
+		return req.ConfigDir
+	}
+	return req.Agent.ConfigDir
 }
 
 // EffectiveWorkDir resolves the working directory with request-level precedence.

@@ -2,6 +2,7 @@ package open_claw
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -91,6 +92,14 @@ func openClawSessionKey(req helios.SessionRequest) string {
 
 func buildEnv(cfg config, req helios.SessionRequest) []string {
 	env := []string{}
+	if helios.EffectiveRuntimeConfigMode(req) != helios.RuntimeConfigUser {
+		if configDir := helios.EffectiveConfigDir(req); configDir != "" {
+			env = append(env,
+				"OPENCLAW_STATE_DIR="+configDir,
+				"OPENCLAW_CONFIG_PATH="+filepath.Join(configDir, "openclaw.json"),
+			)
+		}
+	}
 	if cfg.gatewayPort > 0 {
 		env = append(env, "OPENCLAW_GATEWAY_PORT="+strconv.Itoa(cfg.gatewayPort))
 	}

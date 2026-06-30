@@ -316,7 +316,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 	startCtx, cancel := context.WithTimeout(ctx, a.startupTimeout())
 	defer cancel()
 	procCtx, procCancel := context.WithCancel(context.Background())
-	req := helios.SessionRequest{Agent: spec, WorkDir: spec.WorkDir, RuntimeHome: spec.RuntimeHome}
+	req := helios.SessionRequest{Agent: spec, WorkDir: spec.WorkDir, RuntimeHome: spec.RuntimeHome, ConfigDir: spec.ConfigDir}
 	cmd := exec.CommandContext(procCtx, cliPath, a.buildArgs(req)...)
 	prepareCommand(cmd)
 	if spec.WorkDir != "" {

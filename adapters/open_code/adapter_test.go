@@ -71,6 +71,12 @@ func TestBuildEnv(t *testing.T) {
 }
 
 func TestConfigDirPrecedence(t *testing.T) {
+	if got := configDir(helios.SessionRequest{ConfigDir: "/role/opencode", RuntimeHome: "/runtime"}); got != "/role/opencode" {
+		t.Fatalf("host config dir = %q", got)
+	}
+	if got := configDir(helios.SessionRequest{Agent: helios.AgentSpec{ConfigDir: "/agent/opencode"}, RuntimeHome: "/runtime"}); got != "/agent/opencode" {
+		t.Fatalf("agent config dir = %q", got)
+	}
 	if got := configDir(helios.SessionRequest{RuntimeHome: "/runtime", Agent: helios.AgentSpec{RuntimeHome: "/agent"}}); got != "/runtime/opencode" {
 		t.Fatalf("runtime home dir = %q", got)
 	}

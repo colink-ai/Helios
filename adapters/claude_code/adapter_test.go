@@ -47,8 +47,11 @@ func TestRegisterSpecCLIOverride(t *testing.T) {
 }
 
 func TestClaudeEnvShape(t *testing.T) {
-	env := strings.Join(buildEnv(helios.SessionRequest{Agent: helios.AgentSpec{APIURL: "https://api.test", APIToken: "token"}}), "\n")
-	if !strings.Contains(env, "ANTHROPIC_API_KEY=token") || !strings.Contains(env, "ANTHROPIC_BASE_URL=https://api.test") {
+	env := strings.Join(buildEnv(helios.SessionRequest{
+		ConfigDir: "/role/claude",
+		Agent:     helios.AgentSpec{APIURL: "https://api.test", APIToken: "token"},
+	}), "\n")
+	if !strings.Contains(env, "CLAUDE_CONFIG_DIR=/role/claude") || !strings.Contains(env, "ANTHROPIC_API_KEY=token") || !strings.Contains(env, "ANTHROPIC_BASE_URL=https://api.test") {
 		t.Fatalf("unexpected env: %s", env)
 	}
 }
@@ -56,5 +59,15 @@ func TestClaudeEnvShape(t *testing.T) {
 func TestClaudeEnvEmpty(t *testing.T) {
 	if env := buildEnv(helios.SessionRequest{}); len(env) != 0 {
 		t.Fatalf("env = %v", env)
+	}
+}
+
+func TestClaudeEnvUserConfigMode(t *testing.T) {
+	env := strings.Join(buildEnv(helios.SessionRequest{
+		RuntimeConfigMode: helios.RuntimeConfigUser,
+		ConfigDir:         "/role/claude",
+	}), "\n")
+	if strings.Contains(env, "CLAUDE_CONFIG_DIR=") {
+		t.Fatalf("user config mode should not set config dir: %s", env)
 	}
 }

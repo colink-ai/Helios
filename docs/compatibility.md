@@ -50,14 +50,16 @@ Useful environment variables:
 | `HELIOS_WORKDIR` | Optional working directory for the agent process. Defaults to a temporary directory. |
 | `HELIOS_RUNTIME_CONFIG_MODE` | Optional runtime config mode: `isolated` or `user`. Defaults to `isolated` for real CLI tests unless `HELIOS_RUNTIME_HOME` is intentionally omitted with `user`. |
 | `HELIOS_RUNTIME_HOME` | Optional runtime home/config directory. Defaults to a temporary directory in `isolated` mode. Leave empty with `HELIOS_RUNTIME_CONFIG_MODE=user` to reuse the CLI's user-level config. |
+| `HELIOS_CONFIG_DIR` | Optional host-prepared agent config directory. When set in isolated mode, adapters pass it directly to the CLI instead of deriving a subdirectory from `HELIOS_RUNTIME_HOME`. |
 | `HELIOS_RUN_ONESHOT` | Set to `1` to also validate `Engine.Run`; resident session validation always runs. |
 | `HELIOS_ALLOW_EXISTING_AUTH` | Set to `1` when the CLI should use existing local auth instead of `HELIOS_API_KEY`. |
 
 Runtime config modes:
 
 - `isolated`: use this for product, tenant, domain, workspace, or CI validation
-  where Helios should provide an explicit runtime home. Hermes receives
-  `HERMES_HOME`; OpenCode receives `OPENCODE_CONFIG_DIR`.
+  where Helios should provide an explicit runtime home. If `HELIOS_CONFIG_DIR`
+  is set, it is treated as the exact CLI config directory. Otherwise Hermes
+  receives `HERMES_HOME`; OpenCode receives `OPENCODE_CONFIG_DIR`.
 - `user`: use this for local personal-tool scenarios where the CLI should reuse
   its normal user-level login/config. Helios leaves the agent config home
   unset, but can still pass `HELIOS_WORKDIR` as a process working directory.

@@ -242,6 +242,34 @@ For Hermes, isolated mode writes `RuntimeHome/config.yaml` and sets
 `OPENCODE_CONFIG_DIR=RuntimeHome/opencode`. Other adapters use the fields that
 their underlying CLI supports.
 
+When a host application has already prepared the exact agent configuration
+directory, pass `ConfigDir` instead of `RuntimeHome`. `ConfigDir` is not a
+managed runtime root; adapters give it to the underlying CLI as-is. This is the
+right mode for applications such as Colink/DevMind that materialize role assets
+before starting the agent:
+
+```go
+handle, err := engine.StartSession(ctx, runtime.SessionRequest{
+    RuntimeConfigMode: runtime.RuntimeConfigIsolated,
+    ConfigDir:         "/var/lib/colink/roles/reviewer/.claude",
+    WorkDir:           "/workspace/project",
+    Agent: runtime.AgentSpec{
+        Type:         "claude_code",
+        CLIPath:      "claude-agent-acp",
+        DefaultModel: "sonnet",
+    },
+})
+```
+
+Adapter mappings for host-provided `ConfigDir`:
+
+| Adapter | Mapping |
+| --- | --- |
+| `hermes` | `HERMES_HOME=ConfigDir`; generated `config.yaml` is merged into that directory. |
+| `claude_code` | `CLAUDE_CONFIG_DIR=ConfigDir`. |
+| `open_code` | `OPENCODE_CONFIG_DIR=ConfigDir`. |
+| `open_claw` | `OPENCLAW_STATE_DIR=ConfigDir` and `OPENCLAW_CONFIG_PATH=ConfigDir/openclaw.json`. |
+
 ### User Config Mode
 
 Use user config mode when a local or personal application should reuse the
@@ -266,8 +294,8 @@ handle, err := engine.StartSession(ctx, runtime.SessionRequest{
 })
 ```
 
-If no `RuntimeHome`, `RuntimeRoot`, or `WorkDir` is supplied, Helios infers user
-config mode. If a host passes `WorkDir` for backward compatibility, Helios
+If no `ConfigDir`, `RuntimeHome`, `RuntimeRoot`, or `WorkDir` is supplied,
+Helios infers user config mode. If a host passes `WorkDir` for backward compatibility, Helios
 infers isolated mode unless `RuntimeConfigMode` is explicitly set to
 `runtime.RuntimeConfigUser`. This lets an application keep an isolated working
 directory while still reusing the user's CLI config.
@@ -482,10 +510,10 @@ Store raw payloads when auditability or forward compatibility matters.
 
 | Adapter | Runtime mode | Notes |
 | --- | --- | --- |
-| `hermes` | ACP resident and one-shot | In isolated mode, generates `HERMES_HOME/config.yaml` from `AgentSpec` and MCP server specs. In user config mode, leaves `HERMES_HOME` unset so Hermes can use its user-level config. |
-| `open_code` | ACP resident and one-shot | In isolated mode, injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. In user config mode, leaves `OPENCODE_CONFIG_DIR` unset. Permission mode is host-configurable and is not forced to `allow` by default. |
-| `claude_code` | ACP resident and one-shot | Uses `claude-agent-acp` as the default CLI and maps API token/base URL to environment variables. Runtime config mode currently does not override a Claude config directory. |
-| `open_claw` | ACP resident and one-shot | Builds OpenClaw ACP bridge arguments for an existing gateway endpoint. Gateway lifecycle management belongs to the host application for now; resume prefers `ResumeSessionID` when provided. |
+| `hermes` | ACP resident and one-shot | In isolated mode, generates `HERMES_HOME/config.yaml` from `AgentSpec` and MCP server specs. A host-provided `ConfigDir` is used directly as `HERMES_HOME`. In user config mode, leaves `HERMES_HOME` unset so Hermes can use its user-level config. |
+| `open_code` | ACP resident and one-shot | In isolated mode, injects `OPENCODE_CONFIG_CONTENT`, isolated config dir, pure mode, and question tool support. A host-provided `ConfigDir` is used directly as `OPENCODE_CONFIG_DIR`. In user config mode, leaves `OPENCODE_CONFIG_DIR` unset. Permission mode is host-configurable and is not forced to `allow` by default. |
+| `claude_code` | ACP resident and one-shot | Uses `claude-agent-acp` as the default CLI, maps API token/base URL to environment variables, and maps a host-provided `ConfigDir` to `CLAUDE_CONFIG_DIR`. |
+| `open_claw` | ACP resident and one-shot | Builds OpenClaw ACP bridge arguments for an existing gateway endpoint. A host-provided `ConfigDir` is mapped to OpenClaw state/config env vars. Gateway lifecycle management belongs to the host application for now; resume prefers `ResumeSessionID` when provided. |
 
 These adapters provide SDK-level support and unit-tested configuration behavior.
 Real CLI compatibility should still be validated by each host application in its

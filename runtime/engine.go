@@ -310,6 +310,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			WorkDir:           req.WorkDir,
 			RuntimeConfigMode: req.RuntimeConfigMode,
 			RuntimeHome:       req.RuntimeHome,
+			ConfigDir:         req.ConfigDir,
 			MCPServers:        req.MCPServers,
 			Metadata:          req.Metadata,
 		}
@@ -351,6 +352,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		WorkDir:           req.WorkDir,
 		RuntimeConfigMode: req.RuntimeConfigMode,
 		RuntimeHome:       req.RuntimeHome,
+		ConfigDir:         req.ConfigDir,
 		MCPServers:        req.MCPServers,
 		Metadata:          req.Metadata,
 	})

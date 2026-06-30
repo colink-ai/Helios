@@ -137,6 +137,25 @@ func TestRuntimeHomePrecedence(t *testing.T) {
 	}
 }
 
+func TestConfigDirPrecedence(t *testing.T) {
+	req := helios.SessionRequest{
+		ConfigDir:   "request-config",
+		RuntimeHome: "request-home",
+		Agent:       helios.AgentSpec{ConfigDir: "agent-config", RuntimeHome: "agent-home"},
+	}
+	if got := runtimeHome(req); got != "request-config" {
+		t.Fatalf("config dir should win over runtime home, got %q", got)
+	}
+	req.ConfigDir = ""
+	if got := runtimeHome(req); got != "agent-config" {
+		t.Fatalf("agent config dir should win over runtime home, got %q", got)
+	}
+	req.Agent.ConfigDir = ""
+	if got := runtimeHome(req); got != "request-home" {
+		t.Fatalf("runtime home fallback = %q", got)
+	}
+}
+
 func TestOptionsAndHelpers(t *testing.T) {
 	if NewAdapter(WithCLIPath("custom-hermes")) == nil {
 		t.Fatalf("adapter is nil")

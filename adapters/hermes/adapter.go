@@ -83,6 +83,12 @@ func Register(registry *helios.Registry, opts ...Option) error {
 }
 
 func runtimeHome(req helios.SessionRequest) string {
+	if helios.EffectiveRuntimeConfigMode(req) == helios.RuntimeConfigUser {
+		return ""
+	}
+	if configDir := helios.EffectiveConfigDir(req); configDir != "" {
+		return configDir
+	}
 	return helios.EffectiveRuntimeHome(req)
 }
 

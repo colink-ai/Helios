@@ -25,6 +25,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	cliPath := flags.String("cli", "", "agent CLI path")
 	configMode := flags.String("runtime-config-mode", "", "runtime config mode: isolated or user")
 	runtimeHome := flags.String("runtime-home", "", "agent runtime home/config directory")
+	configDir := flags.String("config-dir", "", "host-prepared agent config directory")
 	workDir := flags.String("workdir", "", "agent process working directory")
 	input := flags.String("input", "Say hello from Helios.", "probe prompt")
 	scenarios := flags.String("scenarios", "detect,one_shot,resident", "comma-separated scenarios")
@@ -47,6 +48,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		CLIPath:           *cliPath,
 		RuntimeConfigMode: mode,
 		RuntimeHome:       *runtimeHome,
+		ConfigDir:         *configDir,
 		WorkDir:           *workDir,
 	}, checks(*scenarios, *input, *timeout))
 	data, err := json.MarshalIndent(report, "", "  ")

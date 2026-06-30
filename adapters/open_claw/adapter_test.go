@@ -48,6 +48,26 @@ func TestBuildArgsDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildEnvConfigDir(t *testing.T) {
+	env := strings.Join(buildEnv(config{gatewayPort: 26888}, helios.SessionRequest{ConfigDir: "/role/openclaw"}), "\n")
+	for _, want := range []string{
+		"OPENCLAW_STATE_DIR=/role/openclaw",
+		"OPENCLAW_CONFIG_PATH=/role/openclaw/openclaw.json",
+		"OPENCLAW_GATEWAY_PORT=26888",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q: %s", want, env)
+		}
+	}
+	env = strings.Join(buildEnv(config{gatewayPort: 0}, helios.SessionRequest{
+		RuntimeConfigMode: helios.RuntimeConfigUser,
+		ConfigDir:         "/role/openclaw",
+	}), "\n")
+	if strings.Contains(env, "OPENCLAW_STATE_DIR=") || strings.Contains(env, "OPENCLAW_CONFIG_PATH=") {
+		t.Fatalf("user config mode should not set openclaw config dir: %s", env)
+	}
+}
+
 func TestBuildArgsResumeSession(t *testing.T) {
 	args := buildArgs(config{gatewayPort: 26888}, helios.SessionRequest{SessionID: "new", ResumeSessionID: "resume"})
 	got := strings.Join(args, " ")

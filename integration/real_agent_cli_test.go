@@ -46,6 +46,7 @@ func TestRealAgentCLIResidentSession(t *testing.T) {
 		Agent:       cfg.agent,
 		WorkDir:     cfg.workDir,
 		RuntimeHome: cfg.runtimeHome,
+		ConfigDir:   cfg.configDir,
 	})
 	if err != nil {
 		t.Fatalf("start real agent session: %v", err)
@@ -93,6 +94,7 @@ func TestRealAgentCLIOneShotRun(t *testing.T) {
 		Input:       cfg.prompt,
 		WorkDir:     cfg.workDir,
 		RuntimeHome: cfg.runtimeHome,
+		ConfigDir:   cfg.configDir,
 	})
 	if err != nil {
 		t.Fatalf("run real agent one-shot: %v", err)
@@ -170,6 +172,7 @@ func runResidentSession(t *testing.T, cfg integrationConfig) {
 		Agent:       cfg.agent,
 		WorkDir:     cfg.workDir,
 		RuntimeHome: cfg.runtimeHome,
+		ConfigDir:   cfg.configDir,
 	})
 	if err != nil {
 		t.Fatalf("start real agent session: %v", err)
@@ -214,6 +217,7 @@ func runMultimodalPrompt(t *testing.T, cfg integrationConfig) {
 		Agent:       cfg.agent,
 		WorkDir:     cfg.workDir,
 		RuntimeHome: cfg.runtimeHome,
+		ConfigDir:   cfg.configDir,
 	})
 	if err != nil {
 		t.Fatalf("start real multimodal session: %v", err)
@@ -273,6 +277,7 @@ type integrationConfig struct {
 	agent                    helios.AgentSpec
 	workDir                  string
 	runtimeHome              string
+	configDir                string
 	prompt                   string
 	expectContains           string
 	multimodalPrompt         string
@@ -323,6 +328,7 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 	if runtimeHome == "" && configMode != helios.RuntimeConfigUser {
 		runtimeHome = filepath.Join(t.TempDir(), "runtime-home")
 	}
+	configDir := os.Getenv("HELIOS_CONFIG_DIR")
 
 	timeout := 2 * time.Minute
 	if raw := os.Getenv("HELIOS_TIMEOUT_SECONDS"); raw != "" {
@@ -347,14 +353,16 @@ func loadIntegrationConfig(t *testing.T) integrationConfig {
 		APIToken:          apiKey,
 		RuntimeConfigMode: configMode,
 		RuntimeHome:       runtimeHome,
+		ConfigDir:         configDir,
 		WorkDir:           workDir,
 		Metadata:          agentMetadata(agentType),
 	}
-	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v configMode=%s workDir=%s runtimeHome=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", configMode, workDir, runtimeHome)
+	t.Logf("running real CLI integration agent=%s cli=%s model=%s apiURL_set=%v configMode=%s workDir=%s runtimeHome=%s configDir=%s", agent.Type, agent.CLIPath, agent.DefaultModel, agent.APIURL != "", configMode, workDir, runtimeHome, configDir)
 	return integrationConfig{
 		agent:                    agent,
 		workDir:                  workDir,
 		runtimeHome:              runtimeHome,
+		configDir:                configDir,
 		prompt:                   prompt,
 		expectContains:           expect,
 		multimodalPrompt:         multimodalPrompt,

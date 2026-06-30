@@ -17,6 +17,7 @@ type AgentSpec struct {
 	APIToken                string            `json:"apiToken,omitempty"`
 	RuntimeConfigMode       RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
 	RuntimeHome             string            `json:"runtimeHome,omitempty"`
+	ConfigDir               string            `json:"configDir,omitempty"`
 	WorkDir                 string            `json:"workDir,omitempty"`
 	SystemPrompt            string            `json:"systemPrompt,omitempty"`
 	SupportsMultimodal      bool              `json:"supportsMultimodal,omitempty"`
@@ -45,6 +46,7 @@ type SessionRequest struct {
 	WorkDir           string            `json:"workDir,omitempty"`
 	RuntimeConfigMode RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
 	RuntimeHome       string            `json:"runtimeHome,omitempty"`
+	ConfigDir         string            `json:"configDir,omitempty"`
 	MCPServers        []MCPServerSpec   `json:"mcpServers,omitempty"`
 	ResumeSessionID   string            `json:"resumeSessionId,omitempty"`
 	Metadata          map[string]any    `json:"metadata,omitempty"`
@@ -68,6 +70,7 @@ type RunRequest struct {
 	WorkDir           string                   `json:"workDir,omitempty"`
 	RuntimeConfigMode RuntimeConfigMode        `json:"runtimeConfigMode,omitempty"`
 	RuntimeHome       string                   `json:"runtimeHome,omitempty"`
+	ConfigDir         string                   `json:"configDir,omitempty"`
 	MCPServers        []MCPServerSpec          `json:"mcpServers,omitempty"`
 	Metadata          map[string]any           `json:"metadata,omitempty"`
 }

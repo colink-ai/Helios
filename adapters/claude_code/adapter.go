@@ -49,6 +49,11 @@ func Register(registry *helios.Registry, opts ...Option) error {
 
 func buildEnv(req helios.SessionRequest) []string {
 	env := []string{}
+	if helios.EffectiveRuntimeConfigMode(req) != helios.RuntimeConfigUser {
+		if configDir := helios.EffectiveConfigDir(req); configDir != "" {
+			env = append(env, "CLAUDE_CONFIG_DIR="+configDir)
+		}
+	}
 	if req.Agent.APIToken != "" {
 		env = append(env, "ANTHROPIC_API_KEY="+req.Agent.APIToken)
 	}
