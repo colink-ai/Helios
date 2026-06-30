@@ -99,6 +99,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	defer cancel()
 	procCtx, procCancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, cliPath, a.buildArgs(req)...)
+	prepareCommand(cmd)
 	if req.WorkDir != "" {
 		if err := os.MkdirAll(req.WorkDir, 0o755); err != nil {
 			procCancel()
@@ -309,6 +310,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 	procCtx, procCancel := context.WithCancel(context.Background())
 	req := helios.SessionRequest{Agent: spec, WorkDir: spec.WorkDir, RuntimeHome: spec.RuntimeHome}
 	cmd := exec.CommandContext(procCtx, cliPath, a.buildArgs(req)...)
+	prepareCommand(cmd)
 	if spec.WorkDir != "" {
 		if abs, err := filepath.Abs(spec.WorkDir); err == nil {
 			cmd.Dir = abs
@@ -547,7 +549,7 @@ func (a *BaseAdapter) teardown(sessionID string, s *session) {
 		s.cancel()
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+		_ = terminateProcessTree(s.cmd)
 		if s.waitDone != nil {
 			select {
 			case <-s.waitDone:
