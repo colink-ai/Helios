@@ -93,6 +93,30 @@ func TestNormalizeCapabilities(t *testing.T) {
 	}
 }
 
+func TestClientCapabilities(t *testing.T) {
+	capabilities := clientCapabilities(helios.AgentSpec{SupportsMultimodal: true})
+	prompt, ok := capabilities["promptCapabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing prompt capabilities: %+v", capabilities)
+	}
+	if prompt["image"] != true || prompt["embeddedContext"] != true {
+		t.Fatalf("unexpected prompt capabilities: %+v", prompt)
+	}
+	elicitation, ok := capabilities["elicitation"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing elicitation capabilities: %+v", capabilities)
+	}
+	if _, ok := elicitation["form"].(map[string]any); !ok {
+		t.Fatalf("missing form elicitation capability: %+v", elicitation)
+	}
+
+	capabilities = clientCapabilities(helios.AgentSpec{})
+	prompt = capabilities["promptCapabilities"].(map[string]any)
+	if prompt["image"] != false || prompt["embeddedContext"] != false {
+		t.Fatalf("non-multimodal spec should not advertise image support: %+v", prompt)
+	}
+}
+
 func TestTakePendingElicitation(t *testing.T) {
 	values := map[string]pendingElicitation{
 		"first":  {request: "r1"},

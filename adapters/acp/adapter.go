@@ -149,7 +149,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 
 	initResult, err := t.sendRequest(startCtx, "initialize", InitializeParams{
 		ProtocolVersion:    a.protocolVersion(),
-		ClientCapabilities: map[string]any{},
+		ClientCapabilities: clientCapabilities(req.Agent),
 	})
 	if err != nil {
 		return nil, fail("initialize", err)
@@ -344,7 +344,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 
 	initResult, err := t.sendRequest(startCtx, "initialize", InitializeParams{
 		ProtocolVersion:    a.protocolVersion(),
-		ClientCapabilities: map[string]any{},
+		ClientCapabilities: clientCapabilities(spec),
 	})
 	if err != nil {
 		return helios.Capabilities{}, fmt.Errorf("acp initialize failed: %w%s", err, s.stderrText())
@@ -354,6 +354,19 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 	capabilities := NormalizeCapabilities(spec, initResp.AgentCapabilities)
 	capabilities.Metadata = map[string]any{"protocolVersion": initResp.ProtocolVersion}
 	return capabilities, nil
+}
+
+func clientCapabilities(spec helios.AgentSpec) map[string]any {
+	promptCapabilities := map[string]any{
+		"image":           spec.SupportsMultimodal,
+		"embeddedContext": spec.SupportsMultimodal,
+	}
+	return map[string]any{
+		"promptCapabilities": promptCapabilities,
+		"elicitation": map[string]any{
+			"form": map[string]any{},
+		},
+	}
 }
 
 func (a *BaseAdapter) SendToolResult(_ context.Context, sessionID string, toolCallID string, result string) error {
