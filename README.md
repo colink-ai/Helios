@@ -2,11 +2,28 @@
 
 **The open runtime layer for AI-native applications.**
 
+<p align="center">
+  <a href="#why-helios-exists">Why</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#compatibility-probes">Compatibility</a> ·
+  <a href="#examples">Examples</a> ·
+  <a href="#project">Project</a>
+</p>
+
 Helios lets product teams embed fast-moving foundation agents without turning
 their application code into a pile of CLI glue, protocol patches, and streaming
 edge cases. It provides stable runtime contracts, normalized event streams,
 adapter interfaces, and session orchestration primitives while deliberately
 staying out of your database, tenant model, billing, identity, and UI.
+
+> **A small naming easter egg:** Helios is named after the Greek sun god. In
+> this project, the name is less about mythology and more about what a runtime
+> should do for AI-native software: provide a steady source of light, energy,
+> and motion. Helios is meant to sit quietly at the center of an application,
+> illuminating agent behavior, powering collaboration, and helping many
+> different agents orbit one product goal without every team rebuilding the same
+> runtime machinery.
 
 <p align="center">
   <img src="docs/assets/helios-hero.svg" alt="Hand-drawn diagram of Helios between product applications and foundation agents" width="100%">
@@ -16,6 +33,18 @@ Helios sits between business applications and agents such as Hermes, OpenCode,
 Claude Code, OpenClaw, and future ACP-compatible runtimes. Its job is not to
 replace those agents. Its job is to make them safe, stable, observable, and
 portable enough to embed in real products.
+
+## Contents
+
+| Start here | Build with Helios | Runtime operations | Project |
+| --- | --- | --- | --- |
+| [Why Helios Exists](#why-helios-exists) | [Package Layout](#package-layout) | [Runtime Modes](#runtime-modes) | [Versioning And Compatibility](#versioning-and-compatibility) |
+| [What Helios Gives You](#what-helios-gives-you) | [Quick Start](#quick-start) | [Runtime Configuration Modes](#runtime-configuration-modes) | [Built-in Adapter Status](#built-in-adapter-status) |
+| [Design Principles](#design-principles) | [Examples](#examples) | [Compatibility Probes](#compatibility-probes) | [Project](#project) |
+| [Positioning](#positioning) | [Permission Flow](#permission-flow) | [Session Resume](#session-resume) |  |
+| [Architecture](#architecture) | [Artifact Flow](#artifact-flow) | [Diagnostics](#diagnostics) |  |
+| [Event Flow](#event-flow) | [Multi-Agent Teams](#multi-agent-teams) | [Security Notes](#security-notes) |  |
+| [Persistence Boundary](#persistence-boundary) | [Implementation Status](#implementation-status) |  |  |
 
 ## Why Helios Exists
 
