@@ -216,12 +216,16 @@ func TestHelperFallbacks(t *testing.T) {
 	if stringFromAny(1) != "" {
 		t.Fatalf("non-string should be empty")
 	}
-	blocks := promptBlocks(helios.PromptRequest{
+	blocks := promptBlocks("", helios.PromptRequest{
 		Input:  "hello",
 		Images: []contracts.ImageContent{{MimeType: "image/png", Data: "data"}},
 	})
 	if len(blocks) != 2 || blocks[1].Type != "image" {
 		t.Fatalf("unexpected blocks: %+v", blocks)
+	}
+	blocks = promptBlocks("stay in role", helios.PromptRequest{Input: "hello"})
+	if len(blocks) != 1 || !strings.Contains(blocks[0].Text, "stay in role") || !strings.Contains(blocks[0].Text, "hello") {
+		t.Fatalf("system prompt not injected: %+v", blocks)
 	}
 }
 

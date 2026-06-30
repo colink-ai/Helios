@@ -54,6 +54,7 @@ type session struct {
 	exitErr             error
 	exited              bool
 	onChunk             helios.ChunkHandler
+	systemPrompt        string
 	pendingElicitations map[string]pendingElicitation
 	pendingPermissions  map[string]pendingPermission
 	nativeResume        bool
@@ -132,6 +133,7 @@ func (a *BaseAdapter) StartSession(ctx context.Context, req helios.SessionReques
 	}
 
 	s := &session{id: sessionID, cmd: cmd, cancel: procCancel, status: helios.SessionStarting, waitDone: make(chan struct{}), events: make(chan helios.SessionRuntimeEvent, 4)}
+	s.systemPrompt = strings.TrimSpace(req.Agent.SystemPrompt)
 	go monitorProcess(s)
 	go captureStderr(stderr, s)
 	t := newTransport(stdout, stdin, func(id any, method string, params json.RawMessage) {
@@ -221,7 +223,7 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 
 	_, err = s.transport.sendRequest(promptCtx, "session/prompt", PromptParams{
 		SessionID: agentSessionID,
-		Prompt:    promptBlocks(req),
+		Prompt:    promptBlocks(s.systemPrompt, req),
 	})
 	if err != nil {
 		return nil, err
@@ -844,8 +846,12 @@ func (s *session) stderrText() string {
 	return "\nstderr: " + s.stderr.String()
 }
 
-func promptBlocks(req helios.PromptRequest) []ContentBlock {
-	blocks := []ContentBlock{{Type: "text", Text: req.Input}}
+func promptBlocks(systemPrompt string, req helios.PromptRequest) []ContentBlock {
+	text := req.Input
+	if systemPrompt != "" {
+		text = "System instructions:\n" + systemPrompt + "\n\nUser request:\n" + req.Input
+	}
+	blocks := []ContentBlock{{Type: "text", Text: text}}
 	for _, image := range req.Images {
 		blocks = append(blocks, ContentBlock{Type: "image", MimeType: image.MimeType, Data: image.Data, URL: image.URL})
 	}
