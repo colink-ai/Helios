@@ -117,6 +117,13 @@ new SDK types. OpenCode accepts `AgentSpec.Metadata["httpPort"]` and
 `AgentSpec.Metadata["gatewayURL"]`, `AgentSpec.Metadata["gatewayPort"]`, and
 `AgentSpec.Metadata["gatewayToken"]`.
 
+OpenCode has one adapter-specific protocol workaround: its ACP question tool can
+ask the user, but current OpenCode releases do not unblock that question through
+ACP tool-result delivery. Helios therefore starts OpenCode with an HTTP port
+and answers matching questions through OpenCode's local `/question` API inside
+the `open_code` adapter. Host applications should still call the normal
+`SendToolResult(sessionID, toolCallID, result)` runtime API.
+
 These tests are not included in default coverage numbers. They are release or
 environment checks for real CLI installation, credential wiring, network access,
 and model-provider behavior.
@@ -137,7 +144,7 @@ and model-provider behavior.
 | Adapter | SDK coverage | Real CLI check |
 | --- | --- | --- |
 | `hermes` | Config rendering, ACP session flow, event normalization. | Verify installed `hermes acp` protocol behavior and protect generated `HERMES_HOME` config. |
-| `open_code` | Config injection, pure mode, ACP question tool setup, configurable permission mode. | Verify installed `opencode` ACP bridge, model config, and permission behavior. |
+| `open_code` | Config injection, pure mode, ACP question tool setup, dynamic HTTP port allocation, HTTP question reply fallback, configurable permission mode. | Verify installed `opencode` ACP bridge, model config, question reply behavior, and permission behavior. |
 | `claude_code` | `claude-agent-acp` environment wiring. | Verify installed bridge version and auth environment. |
 | `open_claw` | ACP bridge argument construction and resume session key selection. | Verify gateway URL, token, bridge lifecycle, and resume mapping. |
 
