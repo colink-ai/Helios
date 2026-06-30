@@ -94,7 +94,7 @@ func TestNormalizeCapabilities(t *testing.T) {
 }
 
 func TestClientCapabilities(t *testing.T) {
-	capabilities := clientCapabilities(helios.AgentSpec{SupportsMultimodal: true})
+	capabilities := clientCapabilities(helios.AgentSpec{SupportsMultimodal: true, SupportsEmbeddedContext: true})
 	prompt, ok := capabilities["promptCapabilities"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing prompt capabilities: %+v", capabilities)
@@ -114,6 +114,12 @@ func TestClientCapabilities(t *testing.T) {
 	prompt = capabilities["promptCapabilities"].(map[string]any)
 	if prompt["image"] != false || prompt["embeddedContext"] != false {
 		t.Fatalf("non-multimodal spec should not advertise image support: %+v", prompt)
+	}
+
+	capabilities = clientCapabilities(helios.AgentSpec{SupportsMultimodal: true})
+	prompt = capabilities["promptCapabilities"].(map[string]any)
+	if prompt["image"] != true || prompt["embeddedContext"] != false {
+		t.Fatalf("embedded context should not follow multimodal support: %+v", prompt)
 	}
 }
 

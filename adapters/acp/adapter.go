@@ -55,6 +55,7 @@ type session struct {
 	exited              bool
 	onChunk             helios.ChunkHandler
 	systemPrompt        string
+	systemPromptSent    bool
 	pendingElicitations map[string]pendingElicitation
 	pendingPermissions  map[string]pendingPermission
 	nativeResume        bool
@@ -215,6 +216,10 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 	s.onChunk = onChunk
 	s.output.Reset()
 	agentSessionID := s.agentSessionID
+	systemPrompt := ""
+	if s.systemPrompt != "" && !s.systemPromptSent {
+		systemPrompt = s.systemPrompt
+	}
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -224,12 +229,15 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 
 	_, err = s.transport.sendRequest(promptCtx, "session/prompt", PromptParams{
 		SessionID: agentSessionID,
-		Prompt:    promptBlocks(s.systemPrompt, req),
+		Prompt:    promptBlocks(systemPrompt, req),
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
+	if systemPrompt != "" {
+		s.systemPromptSent = true
+	}
 	output := s.output.String()
 	s.mu.Unlock()
 	return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, nil
@@ -363,7 +371,7 @@ func (a *BaseAdapter) DetectCapabilities(ctx context.Context, spec helios.AgentS
 func clientCapabilities(spec helios.AgentSpec) map[string]any {
 	promptCapabilities := map[string]any{
 		"image":           spec.SupportsMultimodal,
-		"embeddedContext": spec.SupportsMultimodal,
+		"embeddedContext": spec.SupportsEmbeddedContext,
 	}
 	return map[string]any{
 		"promptCapabilities": promptCapabilities,

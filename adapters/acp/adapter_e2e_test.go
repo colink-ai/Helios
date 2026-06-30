@@ -118,6 +118,44 @@ func TestBaseAdapterDiagnosticsE2E(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterInjectsSystemPromptOnlyOnceE2E(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-system-prompt",
+		Agent: helios.AgentSpec{
+			Type:         "fake",
+			CLIPath:      os.Args[0],
+			SystemPrompt: "stay in role",
+		},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	first, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "echo raw prompt one"}, nil)
+	if err != nil {
+		t.Fatalf("first prompt: %v", err)
+	}
+	if !strings.Contains(first.Output, "System instructions:") || !strings.Contains(first.Output, "stay in role") {
+		t.Fatalf("first prompt should include system instructions, got %q", first.Output)
+	}
+
+	second, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "echo raw prompt two"}, nil)
+	if err != nil {
+		t.Fatalf("second prompt: %v", err)
+	}
+	if strings.Contains(second.Output, "System instructions:") || strings.Contains(second.Output, "stay in role") {
+		t.Fatalf("second prompt should not repeat system instructions, got %q", second.Output)
+	}
+	if !strings.Contains(second.Output, "echo raw prompt two") {
+		t.Fatalf("second prompt should preserve user input, got %q", second.Output)
+	}
+}
+
 func TestBaseAdapterResumeFallsBackToLoadE2E(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -552,6 +590,11 @@ func runFakeACPAgent() {
 		case "session/prompt":
 			var params PromptParams
 			_ = json.Unmarshal(req.Params, &params)
+			if strings.Contains(fakePromptText(params), "echo raw prompt") {
+				emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": fakePromptText(params)}})
+				writeFakeResult(writer, req.ID, map[string]any{"stopReason": "end_turn"})
+				continue
+			}
 			if fakePromptText(params) == "please ask" {
 				pendingPromptID = req.ID
 				waitingForElicitation = true

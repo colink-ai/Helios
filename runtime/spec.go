@@ -8,21 +8,22 @@ import (
 
 // AgentSpec is the runtime-ready agent configuration supplied by a host app.
 type AgentSpec struct {
-	ID                 string            `json:"id,omitempty"`
-	Type               string            `json:"type"`
-	Name               string            `json:"name,omitempty"`
-	CLIPath            string            `json:"cliPath,omitempty"`
-	DefaultModel       string            `json:"defaultModel,omitempty"`
-	APIURL             string            `json:"apiUrl,omitempty"`
-	APIToken           string            `json:"apiToken,omitempty"`
-	RuntimeConfigMode  RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
-	RuntimeHome        string            `json:"runtimeHome,omitempty"`
-	WorkDir            string            `json:"workDir,omitempty"`
-	SystemPrompt       string            `json:"systemPrompt,omitempty"`
-	SupportsMultimodal bool              `json:"supportsMultimodal,omitempty"`
-	PromptTimeout      time.Duration     `json:"promptTimeout,omitempty"`
-	Env                map[string]string `json:"env,omitempty"`
-	Metadata           map[string]any    `json:"metadata,omitempty"`
+	ID                      string            `json:"id,omitempty"`
+	Type                    string            `json:"type"`
+	Name                    string            `json:"name,omitempty"`
+	CLIPath                 string            `json:"cliPath,omitempty"`
+	DefaultModel            string            `json:"defaultModel,omitempty"`
+	APIURL                  string            `json:"apiUrl,omitempty"`
+	APIToken                string            `json:"apiToken,omitempty"`
+	RuntimeConfigMode       RuntimeConfigMode `json:"runtimeConfigMode,omitempty"`
+	RuntimeHome             string            `json:"runtimeHome,omitempty"`
+	WorkDir                 string            `json:"workDir,omitempty"`
+	SystemPrompt            string            `json:"systemPrompt,omitempty"`
+	SupportsMultimodal      bool              `json:"supportsMultimodal,omitempty"`
+	SupportsEmbeddedContext bool              `json:"supportsEmbeddedContext,omitempty"`
+	PromptTimeout           time.Duration     `json:"promptTimeout,omitempty"`
+	Env                     map[string]string `json:"env,omitempty"`
+	Metadata                map[string]any    `json:"metadata,omitempty"`
 }
 
 // MCPServerSpec describes a tool server made available to a runtime session.
