@@ -277,6 +277,12 @@ func TestParseNestedAndLooseUpdates(t *testing.T) {
 	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkStatus {
 		t.Fatalf("unexpected status chunks: %+v", chunks)
 	}
+	if !isTerminalSessionUpdate(json.RawMessage(`{"sessionId":"s1","update":{"sessionUpdate":"done","status":"completed"}}`)) {
+		t.Fatalf("done update should be terminal")
+	}
+	if isTerminalSessionUpdate(status) {
+		t.Fatalf("running status should not be terminal")
+	}
 	tool := json.RawMessage(`{"sessionId":"s1","update":{"title":"edit","toolId":"t1","input":{"path":"x"}}}`)
 	chunks, err = ParseSessionUpdate(tool)
 	if err != nil {

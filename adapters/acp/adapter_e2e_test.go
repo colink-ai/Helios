@@ -70,6 +70,61 @@ func TestBaseAdapterResidentSessionE2E(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterPromptDrainsUpdatesAfterPromptAck(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-ack-before-stream",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	var chunks []contracts.Chunk
+	result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "ack before stream"}, func(chunk contracts.Chunk) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if result.Output != "late answer" {
+		t.Fatalf("output = %q", result.Output)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkText || chunks[0].Content != "late answer" {
+		t.Fatalf("unexpected chunks: %+v", chunks)
+	}
+}
+
+func TestBaseAdapterPromptReturnsRuntimeErrorUpdate(t *testing.T) {
+	adapter := newFakeAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-runtime-error",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	var chunks []contracts.Chunk
+	result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "runtime error update"}, func(chunk contracts.Chunk) {
+		chunks = append(chunks, chunk)
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid_api_key") {
+		t.Fatalf("prompt should surface runtime error, got result=%+v err=%v", result, err)
+	}
+	if len(chunks) != 1 || chunks[0].Type != contracts.ChunkError || !strings.Contains(chunks[0].Content, "invalid_api_key") {
+		t.Fatalf("runtime error chunk not forwarded: %+v", chunks)
+	}
+}
+
 func TestBaseAdapterResumeSessionE2E(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -534,6 +589,7 @@ func runFakeACPAgent() {
 		if req.Method == "" && waitingForElicitation {
 			waitingForElicitation = false
 			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "answer accepted"}})
+			emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
 			writeFakeResult(writer, pendingPromptID, map[string]any{"stopReason": "end_turn"})
 			pendingPromptID = nil
 			continue
@@ -541,6 +597,7 @@ func runFakeACPAgent() {
 		if req.Method == "" && waitingForPermission {
 			waitingForPermission = false
 			emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "permission accepted"}})
+			emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
 			writeFakeResult(writer, pendingPromptID, map[string]any{"stopReason": "end_turn"})
 			pendingPromptID = nil
 			continue
@@ -592,7 +649,21 @@ func runFakeACPAgent() {
 			_ = json.Unmarshal(req.Params, &params)
 			if strings.Contains(fakePromptText(params), "echo raw prompt") {
 				emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": fakePromptText(params)}})
+				emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
 				writeFakeResult(writer, req.ID, map[string]any{"stopReason": "end_turn"})
+				continue
+			}
+			if fakePromptText(params) == "ack before stream" {
+				writeFakeResult(writer, req.ID, map[string]any{"accepted": true})
+				time.Sleep(50 * time.Millisecond)
+				emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "late answer"}})
+				emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
+				continue
+			}
+			if fakePromptText(params) == "runtime error update" {
+				emitFakeUpdate(writer, "error", map[string]any{"message": "401 invalid_api_key"})
+				emitFakeUpdate(writer, "done", map[string]any{"status": "failed"})
+				writeFakeResult(writer, req.ID, map[string]any{"stopReason": "error"})
 				continue
 			}
 			if fakePromptText(params) == "please ask" {
@@ -645,6 +716,7 @@ func runFakeACPAgent() {
 			emitFakeUpdate(writer, "tool_call_update", map[string]any{"toolCallId": "tool-1", "status": "completed", "content": []any{map[string]any{"type": "text", "text": "tool result"}}})
 			emitFakeUpdate(writer, "usage_update", map[string]any{"used": 7, "size": 100})
 			emitFakeUpdate(writer, "plan", map[string]any{"entries": []any{map[string]any{"priority": 1, "status": "done", "content": "tested"}}})
+			emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
 			writeFakeResult(writer, req.ID, map[string]any{"stopReason": "end_turn"})
 		case "session/end":
 			writeFakeResult(writer, req.ID, map[string]any{"ok": true})

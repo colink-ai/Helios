@@ -21,6 +21,7 @@ const (
 	defaultStartupTimeout  = 45 * time.Second
 	defaultPromptTimeout   = 30 * time.Minute
 	defaultProtocolVersion = 1
+	promptDrainQuietPeriod = 2 * time.Second
 )
 
 type Config struct {
@@ -54,6 +55,9 @@ type session struct {
 	exitErr             error
 	exited              bool
 	onChunk             helios.ChunkHandler
+	promptActivity      chan struct{}
+	promptDone          chan struct{}
+	promptErr           string
 	systemPrompt        string
 	systemPromptSent    bool
 	pendingElicitations map[string]pendingElicitation
@@ -214,6 +218,9 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 
 	s.mu.Lock()
 	s.onChunk = onChunk
+	s.promptActivity = make(chan struct{}, 1)
+	s.promptDone = make(chan struct{})
+	s.promptErr = ""
 	s.output.Reset()
 	agentSessionID := s.agentSessionID
 	systemPrompt := ""
@@ -224,6 +231,8 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 	defer func() {
 		s.mu.Lock()
 		s.onChunk = nil
+		s.promptActivity = nil
+		s.promptDone = nil
 		s.mu.Unlock()
 	}()
 
@@ -234,13 +243,64 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 	if err != nil {
 		return nil, err
 	}
+	a.waitForPromptDrain(promptCtx, s)
 	s.mu.Lock()
 	if systemPrompt != "" {
 		s.systemPromptSent = true
 	}
 	output := s.output.String()
+	promptErr := s.promptErr
 	s.mu.Unlock()
+	if promptErr != "" {
+		return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, fmt.Errorf("agent runtime error: %s", promptErr)
+	}
 	return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, nil
+}
+
+func (a *BaseAdapter) waitForPromptDrain(ctx context.Context, s *session) {
+	s.mu.Lock()
+	activity := s.promptActivity
+	done := s.promptDone
+	hasOutput := s.output.Len() > 0
+	s.mu.Unlock()
+	if activity == nil || done == nil {
+		return
+	}
+
+	quiet := time.NewTimer(promptDrainQuietPeriod)
+	defer quiet.Stop()
+	if !hasOutput {
+		if !quiet.Stop() {
+			<-quiet.C
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-done:
+			return
+		case <-activity:
+			quiet.Reset(promptDrainQuietPeriod)
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-done:
+			return
+		case <-activity:
+			if !quiet.Stop() {
+				select {
+				case <-quiet.C:
+				default:
+				}
+			}
+			quiet.Reset(promptDrainQuietPeriod)
+		case <-quiet.C:
+			return
+		}
+	}
 }
 
 func (a *BaseAdapter) Run(ctx context.Context, req helios.RunRequest, onChunk helios.ChunkHandler) (*helios.RunResult, error) {
@@ -609,16 +669,50 @@ func (a *BaseAdapter) handleNotification(s *session, method string, params json.
 	if err != nil {
 		return
 	}
+	terminal := isTerminalSessionUpdate(params)
 	for _, chunk := range chunks {
 		s.mu.Lock()
 		if chunk.Type == contracts.ChunkText {
 			s.output.WriteString(chunk.Content)
 		}
+		if chunk.Type == contracts.ChunkError && s.promptErr == "" {
+			s.promptErr = chunk.Content
+		}
 		cb := s.onChunk
+		activity := s.promptActivity
 		s.mu.Unlock()
+		signalPromptActivity(activity)
 		if cb != nil {
 			cb(chunk)
 		}
+	}
+	if terminal {
+		s.mu.Lock()
+		done := s.promptDone
+		s.promptDone = nil
+		s.mu.Unlock()
+		signalPromptDone(done)
+	}
+}
+
+func signalPromptActivity(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func signalPromptDone(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	default:
+		close(ch)
 	}
 }
 

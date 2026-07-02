@@ -55,6 +55,10 @@ func ParseSessionUpdate(params json.RawMessage) ([]contracts.Chunk, error) {
 		return parseError(update, rawUpdate), nil
 	}
 
+	if isTerminalUpdate(update) {
+		return nil, nil
+	}
+
 	return parseLooseUpdate(update, rawUpdate), nil
 }
 
@@ -301,6 +305,35 @@ func parseLooseUpdate(update map[string]any, raw json.RawMessage) []contracts.Ch
 
 func updateType(update map[string]any) string {
 	return stringValue(update, "sessionUpdate", "session_update", "type")
+}
+
+func isTerminalSessionUpdate(params json.RawMessage) bool {
+	rawUpdate, err := unwrapSessionUpdate(params)
+	if err != nil || len(rawUpdate) == 0 {
+		return false
+	}
+	update, err := object(rawUpdate)
+	if err != nil {
+		return false
+	}
+	return isTerminalUpdate(update)
+}
+
+func isTerminalUpdate(update map[string]any) bool {
+	typ := strings.ToLower(updateType(update))
+	switch typ {
+	case "done", "complete", "completed", "finished", "agent_message_complete", "agent_message_completed", "turn_complete", "turn_completed":
+		return true
+	}
+	if typ != "" && typ != "status" && typ != "session_status" && typ != "turn_status" {
+		return false
+	}
+	status := strings.ToLower(stringValue(update, "status", "state", "stopReason", "stop_reason"))
+	switch status {
+	case "done", "complete", "completed", "finished", "success", "succeeded", "end_turn", "stop":
+		return true
+	}
+	return false
 }
 
 func contentText(update map[string]any) string {
