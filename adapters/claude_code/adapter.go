@@ -10,11 +10,16 @@ const Type = "claude_code"
 type Option func(*config)
 
 type config struct {
-	cliPath string
+	cliPath         string
+	protocolVersion int
 }
 
 func WithCLIPath(path string) Option {
 	return func(c *config) { c.cliPath = path }
+}
+
+func WithProtocolVersion(version int) Option {
+	return func(c *config) { c.protocolVersion = version }
 }
 
 func NewAdapter(opts ...Option) helios.Adapter {
@@ -27,7 +32,8 @@ func NewAdapter(opts ...Option) helios.Adapter {
 		BuildArgs: func(helios.SessionRequest) []string {
 			return nil
 		},
-		BuildEnv: buildEnv,
+		BuildEnv:        buildEnv,
+		ProtocolVersion: cfg.protocolVersion,
 	})
 }
 
@@ -41,6 +47,9 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			localOpts := append([]Option{}, opts...)
 			if spec.CLIPath != "" {
 				localOpts = append(localOpts, WithCLIPath(spec.CLIPath))
+			}
+			if version := acp.ProtocolVersionFromMetadata(spec.Metadata); version > 0 {
+				localOpts = append(localOpts, WithProtocolVersion(version))
 			}
 			return NewAdapter(localOpts...), nil
 		},

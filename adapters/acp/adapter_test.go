@@ -165,6 +165,27 @@ func TestMonitorProcessRecordsExit(t *testing.T) {
 	}
 }
 
+func TestProtocolVersionFromMetadata(t *testing.T) {
+	cases := []struct {
+		name     string
+		metadata map[string]any
+		want     int
+	}{
+		{name: "missing", metadata: nil, want: 0},
+		{name: "explicit ACP key", metadata: map[string]any{MetadataACPProtocolVersion: 2}, want: 2},
+		{name: "wire key", metadata: map[string]any{MetadataProtocolVersion: "3"}, want: 3},
+		{name: "ACP key wins", metadata: map[string]any{MetadataACPProtocolVersion: 4, MetadataProtocolVersion: 3}, want: 4},
+		{name: "ignores invalid", metadata: map[string]any{MetadataACPProtocolVersion: 0, MetadataProtocolVersion: "bad"}, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ProtocolVersionFromMetadata(tc.metadata); got != tc.want {
+				t.Fatalf("ProtocolVersionFromMetadata() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSessionInspectorsAndPendingRequests(t *testing.T) {
 	adapter := NewBaseAdapter(Config{})
 	s := &session{

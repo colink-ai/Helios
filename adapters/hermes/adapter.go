@@ -21,9 +21,10 @@ type Option func(*config)
 type ConfigMutator func(map[string]any)
 
 type config struct {
-	cliPath        string
-	configMutators []ConfigMutator
-	promptTimeout  time.Duration
+	cliPath         string
+	configMutators  []ConfigMutator
+	protocolVersion int
+	promptTimeout   time.Duration
 }
 
 func WithCLIPath(path string) Option {
@@ -40,6 +41,10 @@ func WithConfigMutator(mutator ConfigMutator) Option {
 
 func WithPromptTimeout(timeout time.Duration) Option {
 	return func(c *config) { c.promptTimeout = timeout }
+}
+
+func WithProtocolVersion(version int) Option {
+	return func(c *config) { c.protocolVersion = version }
 }
 
 func NewAdapter(opts ...Option) helios.Adapter {
@@ -59,7 +64,8 @@ func NewAdapter(opts ...Option) helios.Adapter {
 			}
 			return buildEnv(home, req.Agent)
 		},
-		PromptTimeout: cfg.promptTimeout,
+		ProtocolVersion: cfg.protocolVersion,
+		PromptTimeout:   cfg.promptTimeout,
 	})
 }
 
@@ -76,6 +82,9 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			}
 			if spec.PromptTimeout != 0 {
 				localOpts = append(localOpts, WithPromptTimeout(spec.PromptTimeout))
+			}
+			if version := acp.ProtocolVersionFromMetadata(spec.Metadata); version > 0 {
+				localOpts = append(localOpts, WithProtocolVersion(version))
 			}
 			return NewAdapter(localOpts...), nil
 		},

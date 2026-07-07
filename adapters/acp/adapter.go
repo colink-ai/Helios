@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,13 @@ const (
 	defaultPromptTimeout   = 30 * time.Minute
 	defaultProtocolVersion = 1
 	promptDrainQuietPeriod = 2 * time.Second
+)
+
+const (
+	// MetadataProtocolVersion lets host apps or adapter factories override the
+	// ACP initialize.protocolVersion without adding adapter-specific fields.
+	MetadataProtocolVersion    = "protocolVersion"
+	MetadataACPProtocolVersion = "acpProtocolVersion"
 )
 
 type Config struct {
@@ -905,6 +913,80 @@ func (a *BaseAdapter) protocolVersion() int {
 		return a.config.ProtocolVersion
 	}
 	return defaultProtocolVersion
+}
+
+// ProtocolVersionFromMetadata returns a positive ACP protocol version from
+// runtime metadata. It accepts both protocolVersion and acpProtocolVersion so
+// host apps can keep their JSON field names explicit while adapters still speak
+// the ACP wire shape.
+func ProtocolVersionFromMetadata(metadata map[string]any) int {
+	if metadata == nil {
+		return 0
+	}
+	for _, key := range []string{MetadataACPProtocolVersion, MetadataProtocolVersion} {
+		if version := metadataProtocolVersionValue(metadata[key]); version > 0 {
+			return version
+		}
+	}
+	return 0
+}
+
+func metadataProtocolVersionValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return positiveProtocolVersion(v)
+	case int8:
+		return positiveProtocolVersion(int(v))
+	case int16:
+		return positiveProtocolVersion(int(v))
+	case int32:
+		return positiveProtocolVersion(int(v))
+	case int64:
+		return positiveProtocolVersion(int(v))
+	case uint:
+		return positiveProtocolVersionUint(uint64(v))
+	case uint8:
+		return positiveProtocolVersionUint(uint64(v))
+	case uint16:
+		return positiveProtocolVersionUint(uint64(v))
+	case uint32:
+		return positiveProtocolVersionUint(uint64(v))
+	case uint64:
+		return positiveProtocolVersionUint(v)
+	case float64:
+		if v == float64(int(v)) {
+			return positiveProtocolVersion(int(v))
+		}
+	case float32:
+		if v == float32(int(v)) {
+			return positiveProtocolVersion(int(v))
+		}
+	case json.Number:
+		n, err := v.Int64()
+		if err == nil {
+			return positiveProtocolVersion(int(n))
+		}
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return positiveProtocolVersion(n)
+		}
+	}
+	return 0
+}
+
+func positiveProtocolVersion(version int) int {
+	if version > 0 {
+		return version
+	}
+	return 0
+}
+
+func positiveProtocolVersionUint(version uint64) int {
+	if version == 0 || version > uint64(^uint(0)>>1) {
+		return 0
+	}
+	return int(version)
 }
 
 func (a *BaseAdapter) promptTimeout() time.Duration {

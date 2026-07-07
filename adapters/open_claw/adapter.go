@@ -15,11 +15,12 @@ const Type = "open_claw"
 type Option func(*config)
 
 type config struct {
-	cliPath     string
-	gatewayURL  string
-	gatewayPort int
-	token       string
-	launcher    GatewayLauncher
+	cliPath         string
+	gatewayURL      string
+	gatewayPort     int
+	token           string
+	protocolVersion int
+	launcher        GatewayLauncher
 }
 
 // GatewayLauncher lets host applications provide or manage an OpenClaw gateway.
@@ -44,6 +45,10 @@ func WithToken(token string) Option {
 	return func(c *config) { c.token = token }
 }
 
+func WithProtocolVersion(version int) Option {
+	return func(c *config) { c.protocolVersion = version }
+}
+
 func WithGatewayLauncher(launcher GatewayLauncher) Option {
 	return func(c *config) { c.launcher = launcher }
 }
@@ -54,9 +59,10 @@ func NewAdapter(opts ...Option) helios.Adapter {
 		opt(&cfg)
 	}
 	return acp.NewBaseAdapter(acp.Config{
-		CLIPath:   cfg.cliPath,
-		BuildArgs: func(req helios.SessionRequest) []string { return buildArgs(cfg, req) },
-		BuildEnv:  func(req helios.SessionRequest) []string { return buildEnv(cfg, req) },
+		CLIPath:         cfg.cliPath,
+		BuildArgs:       func(req helios.SessionRequest) []string { return buildArgs(cfg, req) },
+		BuildEnv:        func(req helios.SessionRequest) []string { return buildEnv(cfg, req) },
+		ProtocolVersion: cfg.protocolVersion,
 	})
 }
 
@@ -128,6 +134,9 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			}
 			if token, ok := metadataString(spec.Metadata, "gatewayToken"); ok {
 				localOpts = append(localOpts, WithToken(token))
+			}
+			if version := acp.ProtocolVersionFromMetadata(spec.Metadata); version > 0 {
+				localOpts = append(localOpts, WithProtocolVersion(version))
 			}
 			return NewAdapter(localOpts...), nil
 		},

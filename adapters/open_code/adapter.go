@@ -27,9 +27,10 @@ const (
 type Option func(*config)
 
 type config struct {
-	cliPath        string
-	port           int
-	permissionMode string
+	cliPath         string
+	port            int
+	permissionMode  string
+	protocolVersion int
 }
 
 type Adapter struct {
@@ -56,6 +57,10 @@ func WithPermissionMode(mode string) Option {
 	return func(c *config) { c.permissionMode = mode }
 }
 
+func WithProtocolVersion(version int) Option {
+	return func(c *config) { c.protocolVersion = version }
+}
+
 func NewAdapter(opts ...Option) helios.Adapter {
 	cfg := config{cliPath: "opencode"}
 	for _, opt := range opts {
@@ -68,6 +73,7 @@ func NewAdapter(opts ...Option) helios.Adapter {
 		BuildEnv: func(req helios.SessionRequest) []string {
 			return buildEnv(req, cfg)
 		},
+		ProtocolVersion: cfg.protocolVersion,
 	})
 	return adapter
 }
@@ -210,6 +216,9 @@ func Register(registry *helios.Registry, opts ...Option) error {
 			}
 			if mode, ok := metadataString(spec.Metadata, "permission"); ok {
 				localOpts = append(localOpts, WithPermissionMode(mode))
+			}
+			if version := acp.ProtocolVersionFromMetadata(spec.Metadata); version > 0 {
+				localOpts = append(localOpts, WithProtocolVersion(version))
 			}
 			return NewAdapter(localOpts...), nil
 		},
