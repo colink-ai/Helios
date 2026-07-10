@@ -409,6 +409,21 @@ Applications remain responsible for user policy, audit, and approval UI. Helios
 only normalizes the runtime request and transports the decision back to the
 adapter.
 
+Question and elicitation results use the same engine-level session routing:
+
+```go
+if event.Type == contracts.EventQuestionAsked {
+    answer := `{"question_0":"approved"}`
+    _ = engine.SendToolResult(ctx, event.SessionID, event.Chunk.ToolID, answer)
+}
+```
+
+Hosts that cannot tolerate missing audit events can construct the engine with
+`runtime.WithStrictEventSink()`. Synchronous sink failures are returned from
+session and run operations. Failures from out-of-band session events are
+recorded on the active session and surfaced by its next operation and by
+`StopSession`.
+
 Adapter defaults should not silently bypass host approval. OpenCode keeps its
 own permission default unless the host explicitly sets
 `AgentSpec.Metadata["permission"]` or uses `open_code.WithPermissionMode`.
@@ -421,6 +436,9 @@ those CLIs accept: for example environment variables, generated runtime config,
 or process arguments for local bridge tokens. Host applications should protect
 runtime home directories, process environments, logs, and diagnostics with the
 same care as other secret-bearing infrastructure.
+
+Generated Hermes config files use owner-only `0600` permissions because MCP
+headers and environment entries may contain credentials.
 
 ## Artifact Flow
 
@@ -523,4 +541,5 @@ own environment, because installed CLI versions and protocol details can differ.
 
 - License: [Apache 2.0](LICENSE)
 - Contributing guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Release guide: [RELEASING.md](RELEASING.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)

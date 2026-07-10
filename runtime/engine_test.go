@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,15 @@ type usagePromptAdapter struct {
 
 func (usagePromptAdapter) Prompt(context.Context, PromptRequest, ChunkHandler) (*RunResult, error) {
 	return &RunResult{Output: "ok", Usage: &contracts.TokenUsage{InputTokens: 3, OutputTokens: 5}}, nil
+}
+
+type chunkPromptAdapter struct {
+	testAdapter
+}
+
+func (chunkPromptAdapter) Prompt(_ context.Context, _ PromptRequest, onChunk ChunkHandler) (*RunResult, error) {
+	onChunk(contracts.Chunk{Type: contracts.ChunkText, Content: "streamed"})
+	return &RunResult{Output: "streamed"}, nil
 }
 
 type startFailAdapter struct {
@@ -200,6 +210,33 @@ func TestEngineStrictSessionStore(t *testing.T) {
 	}
 	if adapter.stopped != 1 {
 		t.Fatalf("expected cleanup stop, got %d", adapter.stopped)
+	}
+}
+
+func TestEngineStrictEventSinkReportsPromptChunkFailure(t *testing.T) {
+	ctx := context.Background()
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "chunk",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return chunkPromptAdapter{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg, WithStrictEventSink(), WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		if event.Type == contracts.EventChunk {
+			return fmt.Errorf("chunk sink failed")
+		}
+		return nil
+	})))
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-chunk", Agent: AgentSpec{Type: "chunk"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	result, err := engine.Prompt(ctx, PromptRequest{SessionID: handle.ID, Input: "hello"})
+	if err == nil || !strings.Contains(err.Error(), "chunk sink failed") {
+		t.Fatalf("strict prompt should report chunk sink failure, result=%+v err=%v", result, err)
 	}
 }
 
@@ -435,6 +472,18 @@ func (a *permissionAdapter) SendPermissionResult(_ context.Context, _ string, _ 
 	return nil
 }
 
+type toolResultAdapter struct {
+	testAdapter
+	toolCallID string
+	result     string
+}
+
+func (a *toolResultAdapter) SendToolResult(_ context.Context, _ string, toolCallID string, result string) error {
+	a.toolCallID = toolCallID
+	a.result = result
+	return nil
+}
+
 type eventSourceAdapter struct {
 	testAdapter
 	events chan SessionRuntimeEvent
@@ -480,6 +529,31 @@ func TestEngineSendPermissionResult(t *testing.T) {
 	}
 	if !adapter.decision.Allow || adapter.decision.Reason != "ok" {
 		t.Fatalf("unexpected decision: %+v", adapter.decision)
+	}
+}
+
+func TestEngineSendToolResult(t *testing.T) {
+	ctx := context.Background()
+	adapter := &toolResultAdapter{}
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "tool-result",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return adapter, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg)
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "session-tool", Agent: AgentSpec{Type: "tool-result"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := engine.SendToolResult(ctx, handle.ID, "tool-1", `{"question_0":"A"}`); err != nil {
+		t.Fatalf("send tool result: %v", err)
+	}
+	if adapter.toolCallID != "tool-1" || adapter.result != `{"question_0":"A"}` {
+		t.Fatalf("unexpected tool result: id=%q result=%q", adapter.toolCallID, adapter.result)
 	}
 }
 
@@ -551,6 +625,50 @@ func TestEngineForwardsSessionRuntimeEvents(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("runtime event not forwarded")
 		}
+	}
+}
+
+func TestEngineStrictEventSinkRecordsAsyncFailure(t *testing.T) {
+	ctx := context.Background()
+	adapter := &eventSourceAdapter{events: make(chan SessionRuntimeEvent, 1)}
+	reg := NewRegistry()
+	if err := reg.Register(AdapterMeta{
+		Type: "strict-event-source",
+		Factory: func(AgentSpec) (Adapter, error) {
+			return adapter, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	engine := NewEngine(reg, WithStrictEventSink(), WithEventSink(EventSinkFunc(func(_ context.Context, event contracts.RunEvent) error {
+		if event.Type == contracts.EventRuntimeError {
+			return fmt.Errorf("runtime event sink failed")
+		}
+		return nil
+	})))
+	handle, err := engine.StartSession(ctx, SessionRequest{SessionID: "strict-session-events", Agent: AgentSpec{Type: "strict-event-source"}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	adapter.events <- SessionRuntimeEvent{SessionID: handle.ID, Type: "process.exited", Error: "exit 1"}
+	close(adapter.events)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		_, err = engine.Diagnostics(ctx, handle.ID)
+		if err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("async sink failure was not recorded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(err.Error(), "runtime event sink failed") {
+		t.Fatalf("unexpected diagnostics error: %v", err)
+	}
+	if err := engine.StopSession(ctx, handle.ID); err == nil || !strings.Contains(err.Error(), "runtime event sink failed") {
+		t.Fatalf("stop should preserve async sink failure, got %v", err)
 	}
 }
 

@@ -122,7 +122,7 @@ func buildEnv(home string, spec helios.AgentSpec) []string {
 }
 
 func writeConfig(home string, spec helios.AgentSpec, servers []helios.MCPServerSpec, mutators ...ConfigMutator) error {
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
 	path := filepath.Join(home, "config.yaml")
@@ -131,9 +131,12 @@ func writeConfig(home string, spec helios.AgentSpec, servers []helios.MCPServerS
 		return err
 	}
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
-		return nil
+		return os.Chmod(path, 0o600)
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func loadConfig(path string) map[string]any {

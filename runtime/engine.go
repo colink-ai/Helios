@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ type Engine struct {
 	mu          sync.RWMutex
 	sessions    map[string]Adapter
 	sessionOf   map[string]SessionRequest
+	sessionErrs map[string]error
 	strictSink  bool
 	strictStore bool
 }
@@ -52,10 +54,11 @@ func NewEngine(registry *Registry, opts ...EngineOption) *Engine {
 		registry = NewRegistry()
 	}
 	e := &Engine{
-		registry:  registry,
-		sink:      NoopEventSink{},
-		sessions:  map[string]Adapter{},
-		sessionOf: map[string]SessionRequest{},
+		registry:    registry,
+		sink:        NoopEventSink{},
+		sessions:    map[string]Adapter{},
+		sessionOf:   map[string]SessionRequest{},
+		sessionErrs: map[string]error{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -94,7 +97,10 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 	}
 	handle, err := adapter.StartSession(ctx, req)
 	if err != nil {
-		_ = e.emit(ctx, eventWith(req, contracts.EventRunFailed, err.Error()))
+		sinkErr := e.emit(ctx, eventWith(req, contracts.EventRunFailed, err.Error()))
+		if e.strictSink {
+			return nil, errors.Join(err, sinkErr)
+		}
 		return nil, err
 	}
 	if handle == nil {
@@ -110,6 +116,7 @@ func (e *Engine) StartSession(ctx context.Context, req SessionRequest) (*Session
 	e.sessions[handle.ID] = adapter
 	req.SessionID = handle.ID
 	e.sessionOf[handle.ID] = req
+	delete(e.sessionErrs, handle.ID)
 	e.mu.Unlock()
 	if err := e.emit(ctx, eventWith(req, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
 		e.cleanupStartedSession(ctx, handle.ID, adapter)
@@ -140,6 +147,7 @@ func (e *Engine) cleanupStartedSession(ctx context.Context, sessionID string, ad
 	e.mu.Lock()
 	delete(e.sessions, sessionID)
 	delete(e.sessionOf, sessionID)
+	delete(e.sessionErrs, sessionID)
 	e.mu.Unlock()
 }
 
@@ -152,6 +160,7 @@ func (e *Engine) startSessionEventForwarder(ctx context.Context, sessionID strin
 	if err != nil || events == nil {
 		return
 	}
+	eventCtx := context.WithoutCancel(ctx)
 	go func() {
 		for event := range events {
 			runtimeEvent := contracts.NewEvent(contracts.EventRuntimeError)
@@ -163,26 +172,72 @@ func (e *Engine) startSessionEventForwarder(ctx context.Context, sessionID strin
 			for key, value := range event.Metadata {
 				runtimeEvent.Metadata[key] = value
 			}
-			_ = e.emit(ctx, runtimeEvent)
+			if err := e.emit(eventCtx, runtimeEvent); err != nil && e.strictSink {
+				e.mu.Lock()
+				if _, active := e.sessions[sessionID]; active {
+					if _, recorded := e.sessionErrs[sessionID]; !recorded {
+						e.sessionErrs[sessionID] = fmt.Errorf("event sink failed for session %s: %w", sessionID, err)
+					}
+				}
+				e.mu.Unlock()
+			}
 		}
 	}()
 }
 
-// Prompt sends input to an active session and emits each normalized chunk.
-func (e *Engine) Prompt(ctx context.Context, req PromptRequest) (*RunResult, error) {
+func (e *Engine) activeSession(sessionID string) (Adapter, SessionRequest, error) {
 	e.mu.RLock()
-	adapter, ok := e.sessions[req.SessionID]
-	sessionReq := e.sessionOf[req.SessionID]
+	adapter, ok := e.sessions[sessionID]
+	req := e.sessionOf[sessionID]
+	sessionErr := e.sessionErrs[sessionID]
 	e.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("session %s is not active", req.SessionID)
+		return nil, SessionRequest{}, fmt.Errorf("session %s is not active", sessionID)
 	}
+	if sessionErr != nil {
+		return nil, req, sessionErr
+	}
+	return adapter, req, nil
+}
+
+type sinkErrorCollector struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (c *sinkErrorCollector) capture(err error) {
+	if err == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil {
+		c.err = err
+	}
+}
+
+func (c *sinkErrorCollector) load() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+// Prompt sends input to an active session and emits each normalized chunk.
+func (e *Engine) Prompt(ctx context.Context, req PromptRequest) (*RunResult, error) {
+	adapter, sessionReq, err := e.activeSession(req.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	var sinkErr sinkErrorCollector
 	wrapped := func(chunk contracts.Chunk) {
-		_ = e.EmitChunk(ctx, sessionReq.RunID, req.SessionID, sessionReq.Agent.ID, chunk)
+		sinkErr.capture(e.EmitChunk(ctx, sessionReq.RunID, req.SessionID, sessionReq.Agent.ID, chunk))
 	}
 	result, err := adapter.Prompt(ctx, req, wrapped)
 	if err != nil {
-		_ = e.emit(ctx, eventWith(sessionReq, contracts.EventRunFailed, err.Error()))
+		failedEventErr := e.emit(ctx, eventWith(sessionReq, contracts.EventRunFailed, err.Error()))
+		if e.strictSink {
+			return nil, errors.Join(err, sinkErr.load(), failedEventErr)
+		}
 		return nil, err
 	}
 	if result != nil && result.Usage != nil {
@@ -191,7 +246,12 @@ func (e *Engine) Prompt(ctx context.Context, req PromptRequest) (*RunResult, err
 		event.SessionID = req.SessionID
 		event.AgentID = sessionReq.Agent.ID
 		event.Usage = result.Usage
-		_ = e.emit(ctx, event)
+		sinkErr.capture(e.emit(ctx, event))
+	}
+	if e.strictSink {
+		if err := sinkErr.load(); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -201,33 +261,49 @@ func (e *Engine) StopSession(ctx context.Context, sessionID string) error {
 	e.mu.RLock()
 	adapter, ok := e.sessions[sessionID]
 	sessionReq := e.sessionOf[sessionID]
+	sessionErr := e.sessionErrs[sessionID]
 	e.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("session %s is not active", sessionID)
 	}
 	if err := adapter.StopSession(ctx, sessionID); err != nil {
-		return err
+		return errors.Join(err, sessionErr)
 	}
 	e.mu.Lock()
 	delete(e.sessions, sessionID)
 	delete(e.sessionOf, sessionID)
+	delete(e.sessionErrs, sessionID)
 	e.mu.Unlock()
+	var resultErr error
 	if e.store != nil {
 		if err := e.store.DeleteSession(ctx, sessionID); err != nil && e.strictStore {
-			return err
+			resultErr = errors.Join(resultErr, err)
 		}
 	}
-	return e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
+	resultErr = errors.Join(resultErr, sessionErr, e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, "")))
+	return resultErr
+}
+
+// SendToolResult answers a pending tool or elicitation request through the
+// adapter that owns the active session.
+func (e *Engine) SendToolResult(ctx context.Context, sessionID string, toolCallID string, result string) error {
+	adapter, _, err := e.activeSession(sessionID)
+	if err != nil {
+		return err
+	}
+	sender, ok := adapter.(ToolResultSender)
+	if !ok {
+		return fmt.Errorf("adapter for session %s does not support tool results", sessionID)
+	}
+	return sender.SendToolResult(ctx, sessionID, toolCallID, result)
 }
 
 // SendPermissionResult answers a pending permission request for adapters that
 // support host-driven permission decisions.
 func (e *Engine) SendPermissionResult(ctx context.Context, sessionID string, permissionID string, decision PermissionDecision) error {
-	e.mu.RLock()
-	adapter, ok := e.sessions[sessionID]
-	e.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("session %s is not active", sessionID)
+	adapter, _, err := e.activeSession(sessionID)
+	if err != nil {
+		return err
 	}
 	sender, ok := adapter.(PermissionResultSender)
 	if !ok {
@@ -237,11 +313,9 @@ func (e *Engine) SendPermissionResult(ctx context.Context, sessionID string, per
 }
 
 func (e *Engine) PendingRequests(ctx context.Context, sessionID string) ([]PendingRequest, error) {
-	e.mu.RLock()
-	adapter, ok := e.sessions[sessionID]
-	e.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("session %s is not active", sessionID)
+	adapter, _, err := e.activeSession(sessionID)
+	if err != nil {
+		return nil, err
 	}
 	inspector, ok := adapter.(PendingRequestInspector)
 	if !ok {
@@ -251,11 +325,9 @@ func (e *Engine) PendingRequests(ctx context.Context, sessionID string) ([]Pendi
 }
 
 func (e *Engine) CancelPendingRequest(ctx context.Context, sessionID string, requestID string, reason string) error {
-	e.mu.RLock()
-	adapter, ok := e.sessions[sessionID]
-	e.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("session %s is not active", sessionID)
+	adapter, _, err := e.activeSession(sessionID)
+	if err != nil {
+		return err
 	}
 	inspector, ok := adapter.(PendingRequestInspector)
 	if !ok {
@@ -266,11 +338,9 @@ func (e *Engine) CancelPendingRequest(ctx context.Context, sessionID string, req
 
 // Diagnostics returns adapter-level session diagnostics when available.
 func (e *Engine) Diagnostics(ctx context.Context, sessionID string) (SessionDiagnostics, error) {
-	e.mu.RLock()
-	adapter, ok := e.sessions[sessionID]
-	e.mu.RUnlock()
-	if !ok {
-		return SessionDiagnostics{}, fmt.Errorf("session %s is not active", sessionID)
+	adapter, _, err := e.activeSession(sessionID)
+	if err != nil {
+		return SessionDiagnostics{}, err
 	}
 	if provider, ok := adapter.(DiagnosticProvider); ok {
 		return provider.Diagnostics(ctx, sessionID)
@@ -317,12 +387,16 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		if err := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStarted, "")); err != nil && e.strictSink {
 			return nil, err
 		}
+		var sinkErr sinkErrorCollector
 		result, err := native.Run(ctx, req, func(chunk contracts.Chunk) {
-			_ = e.EmitChunk(ctx, runID, sessionID, req.Agent.ID, chunk)
+			sinkErr.capture(e.EmitChunk(ctx, runID, sessionID, req.Agent.ID, chunk))
 		})
 		if err != nil {
-			_ = e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
-			_ = e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunFailed, RunID: runID, SessionID: sessionID, AgentID: req.Agent.ID, Error: err.Error(), Timestamp: time.Now().UTC()})
+			stoppedEventErr := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
+			failedEventErr := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunFailed, RunID: runID, SessionID: sessionID, AgentID: req.Agent.ID, Error: err.Error(), Timestamp: time.Now().UTC()})
+			if e.strictSink {
+				return nil, errors.Join(err, sinkErr.load(), stoppedEventErr, failedEventErr)
+			}
 			return nil, err
 		}
 		if result == nil {
@@ -335,11 +409,12 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 			result.AgentSessionID = result.SessionID
 		}
 		result.SessionID = sessionID
-		if err := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, "")); err != nil && e.strictSink {
-			return nil, err
-		}
-		if err := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, SessionID: sessionID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()}); err != nil && e.strictSink {
-			return nil, err
+		stoppedEventErr := e.emit(ctx, eventWith(sessionReq, contracts.EventSessionStopped, ""))
+		completedEventErr := e.emit(ctx, contracts.RunEvent{Type: contracts.EventRunCompleted, RunID: runID, SessionID: sessionID, AgentID: req.Agent.ID, Timestamp: time.Now().UTC()})
+		if e.strictSink {
+			if err := errors.Join(sinkErr.load(), stoppedEventErr, completedEventErr); err != nil {
+				return result, err
+			}
 		}
 		return result, nil
 	}
@@ -367,7 +442,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	})
 	stopErr := e.StopSession(ctx, handle.ID)
 	if promptErr != nil {
-		return nil, promptErr
+		return nil, errors.Join(promptErr, stopErr)
 	}
 	if stopErr != nil {
 		return nil, stopErr

@@ -99,6 +99,36 @@ func TestBaseAdapterPromptDrainsUpdatesAfterPromptAck(t *testing.T) {
 	}
 }
 
+func TestBaseAdapterPromptReturnsDrainTimeout(t *testing.T) {
+	adapter := NewBaseAdapter(Config{
+		CLIPath:        os.Args[0],
+		StartupTimeout: 2 * time.Second,
+		PromptTimeout:  100 * time.Millisecond,
+		BuildArgs: func(helios.SessionRequest) []string {
+			return []string{"-test.run=TestFakeACPAgentCLI", "--"}
+		},
+		BuildEnv: func(helios.SessionRequest) []string {
+			return []string{"HELIOS_FAKE_ACP=1"}
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handle, err := adapter.StartSession(ctx, helios.SessionRequest{
+		SessionID: "host-session-prompt-timeout",
+		Agent:     helios.AgentSpec{Type: "fake", CLIPath: os.Args[0]},
+	})
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer adapter.StopSession(context.Background(), handle.ID)
+
+	result, err := adapter.Prompt(ctx, helios.PromptRequest{SessionID: handle.ID, Input: "ack then hang"}, func(contracts.Chunk) {})
+	if err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("prompt should return drain timeout, result=%+v err=%v", result, err)
+	}
+}
+
 func TestBaseAdapterPromptReturnsRuntimeErrorUpdate(t *testing.T) {
 	adapter := newFakeAdapter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -658,6 +688,10 @@ func runFakeACPAgent() {
 				time.Sleep(50 * time.Millisecond)
 				emitFakeUpdate(writer, "agent_message_chunk", map[string]any{"content": map[string]any{"type": "text", "text": "late answer"}})
 				emitFakeUpdate(writer, "done", map[string]any{"status": "completed"})
+				continue
+			}
+			if fakePromptText(params) == "ack then hang" {
+				writeFakeResult(writer, req.ID, map[string]any{"accepted": true})
 				continue
 			}
 			if fakePromptText(params) == "runtime error update" {

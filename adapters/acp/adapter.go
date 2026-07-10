@@ -262,6 +262,9 @@ func (a *BaseAdapter) Prompt(ctx context.Context, req helios.PromptRequest, onCh
 	if promptErr != "" {
 		return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, fmt.Errorf("agent runtime error: %s", promptErr)
 	}
+	if err := promptCtx.Err(); err != nil {
+		return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, err
+	}
 	return &helios.RunResult{Output: output, SessionID: req.SessionID, AgentSessionID: agentSessionID}, nil
 }
 

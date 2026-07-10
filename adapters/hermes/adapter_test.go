@@ -52,6 +52,13 @@ func TestWriteConfigAndEnv(t *testing.T) {
 	if !strings.Contains(string(data), `default: glm-test`) {
 		t.Fatalf("unexpected config:\n%s", string(data))
 	}
+	info, err := os.Stat(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		t.Fatalf("stat config: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("config permissions = %o, want 600", got)
+	}
 	env := strings.Join(buildEnv(home, spec), "\n")
 	for _, want := range []string{"HERMES_HOME=", "HERMES_INFERENCE_PROVIDER=custom", "CUSTOM_BASE_URL=https://model.test/v1", "OPENAI_API_KEY=secret"} {
 		if !strings.Contains(env, want) {
@@ -98,6 +105,9 @@ func TestWriteConfigSkipsUnchangedFile(t *testing.T) {
 	if err := writeConfig(home, spec, nil); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+	if err := os.Chmod(filepath.Join(home, "config.yaml"), 0o644); err != nil {
+		t.Fatalf("make config permissive: %v", err)
+	}
 	info, err := os.Stat(filepath.Join(home, "config.yaml"))
 	if err != nil {
 		t.Fatalf("stat config: %v", err)
@@ -111,6 +121,9 @@ func TestWriteConfigSkipsUnchangedFile(t *testing.T) {
 	}
 	if !infoAfter.ModTime().Equal(info.ModTime()) {
 		t.Fatalf("unchanged config should not be rewritten")
+	}
+	if got := infoAfter.Mode().Perm(); got != 0o600 {
+		t.Fatalf("unchanged config permissions = %o, want 600", got)
 	}
 }
 
